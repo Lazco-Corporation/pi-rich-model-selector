@@ -188,6 +188,28 @@ Only your starred models stay available after a sync.
 
 All files sit under `src/`.
 
+## Release
+
+`npm version` owns the version number. Never edit the `version` field in
+`package.json` by hand.
+
+Cut a release from a clean `main`:
+
+```sh
+npm run release patch          # 0.1.0 -> 0.1.1
+npm run release minor          # 0.1.0 -> 0.2.0
+npm run release prerelease     # 0.1.0 -> 0.1.1-0, goes to the `next` dist-tag
+npm run release 1.0.0          # an explicit version
+npm run release patch -- --dry-run
+```
+
+The script type-checks, runs `npm version`, and pushes the branch plus the new
+`v<version>` tag. That tag starts `.github/workflows/release-npm.yml`, which
+publishes to npm with provenance and opens the GitHub release.
+
+Because `npm version` writes `package.json` and the tag in one step, the two can
+never disagree. The workflow re-checks them anyway and fails on a mismatch.
+
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).

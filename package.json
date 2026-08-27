@@ -47,6 +47,7 @@
     "typescript": "^5.9.2"
   },
   "scripts": {
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "release": "bash scripts/release.sh"
   }
 }
