@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Pi extension: a model picker that shows context size, price, thinking levels, and key state, with starred models in your own order",
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "author": "OnCloud125252 <onc125252@gmail.com>",
   "repository": {
     "type": "git",
