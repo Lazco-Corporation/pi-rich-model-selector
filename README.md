@@ -6,6 +6,8 @@ You can star a model and put the starred models in the order you want.
 The built-in picker shows the model id, the provider, and the model name.
 This picker also shows the context size, the price, the thinking levels, and the key state.
 
+<video src="https://github.com/user-attachments/assets/5fd65f9e-ef06-4577-9c7e-793d5c7d6f58" controls></video>
+
 ## Install
 
 ```bash
