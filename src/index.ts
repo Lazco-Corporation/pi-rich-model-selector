@@ -4,7 +4,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { RichModelPicker } from "./picker.ts";
-import { StarStore, writeEnabledModels } from "./store.ts";
+import { StarStore, writeDefaultModel, writeEnabledModels } from "./store.ts";
 
 const STORE_FILE = "rich-model-selector.json";
 
@@ -47,6 +47,14 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
       initialSearch,
       onSelect: (model) => done(model),
       onCancel: () => done(undefined),
+      onSetDefaultModel: (provider, id) => {
+        try {
+          writeDefaultModel(getAgentDir(), provider, id);
+          return undefined;
+        } catch (error) {
+          return `Could not write settings.json: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
     });
   });
 

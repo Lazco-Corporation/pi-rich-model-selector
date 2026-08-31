@@ -193,6 +193,37 @@ export class StarStore {
 }
 
 /**
+ * Write `defaultProvider` and `defaultModel` into settings.json.
+ *
+ * Pi merges settings per field when it saves, so this value survives a later pi
+ * write. A call with an undefined provider or id clears both fields, and pi
+ * falls back to its built-in per-provider defaults on the next start.
+ */
+export function writeDefaultModel(agentDir: string, provider: string | undefined, modelId: string | undefined): void {
+  const settingsPath = join(agentDir, "settings.json");
+  const clearing = !(provider && modelId);
+  if (clearing && !existsSync(settingsPath)) return;
+  let settings: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(`Could not read settings.json: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (provider && modelId) {
+    settings.defaultProvider = provider;
+    settings.defaultModel = modelId;
+  } else {
+    delete settings.defaultProvider;
+    delete settings.defaultModel;
+  }
+  const temporaryPath = `${settingsPath}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`);
+  renameSync(temporaryPath, settingsPath);
+}
+
+/**
  * Write `enabledModels` into settings.json. Pi merges settings per field when it
  * saves, so this value survives a later pi write.
  */
