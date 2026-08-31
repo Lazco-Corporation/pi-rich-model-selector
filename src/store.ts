@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export interface StoreData {
@@ -214,8 +214,20 @@ function updateSettings(agentDir: string, mutate: (settings: Record<string, unkn
   }
   mutate(settings);
   const temporaryPath = `${settingsPath}.tmp-${process.pid}`;
-  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temporaryPath, settingsPath);
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, settingsPath);
+  } catch (error) {
+    // A failed rename would otherwise leave a settings snapshot behind. The
+    // pid in the name makes every process leave its own stray file, so the
+    // cleanup must run here, not on the next write.
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // The file may not exist, which is fine.
+    }
+    throw error;
+  }
 }
 
 /**
