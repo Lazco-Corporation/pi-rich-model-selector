@@ -52,7 +52,7 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
           writeDefaultModel(getAgentDir(), provider, id);
           return undefined;
         } catch (error) {
-          return `Could not write settings.json: ${error instanceof Error ? error.message : String(error)}`;
+          return `Could not update settings.json: ${error instanceof Error ? error.message : String(error)}`;
         }
       },
     });

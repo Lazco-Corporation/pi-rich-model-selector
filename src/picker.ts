@@ -408,6 +408,12 @@ export class RichModelPicker extends Container implements Focusable {
       wasDefault ? "Cleared the startup default model." : `${item.id} is now the startup default. Restart pi to use it.`,
       "success",
     );
+    // The sort puts the default model near the front, so the write moves the
+    // row. Re-filter and re-find the row, like toggleStar does.
+    this.applyFilter();
+    const index = this.filtered.findIndex((entry) => entry.key === item.key);
+    if (index >= 0) this.selectedIndex = index;
+    else this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filtered.length - 1));
     this.updateList();
   }
 

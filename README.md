@@ -141,7 +141,7 @@ The title sits on the left of the top border.
 The key hints sit on the right of the same line.
 
 ```
-╭─ Select a model ── ↵ · ^S★ · ^↑↓ · ^E · ⇥ · esc ─╮
+╭─ Select a model ── ↵ · ^S★ · ^↑↓ · ^D · ^E · ⇥ · esc ─╮
 │ View: starred | all | hidden  2 starred, 1 hidden, 3 total │
 │ >                                         │
 ├───────────────────────┬─────────────────┤

@@ -193,6 +193,32 @@ export class StarStore {
 }
 
 /**
+ * Read settings.json, apply one mutation, and write the result back.
+ *
+ * The write goes through a process-specific temporary file, so two pi
+ * processes cannot write the same temporary file at once. Synchronous calls in
+ * one process cannot interleave, so the process id is enough to name the file.
+ * The file gets the same private mode as the store file: settings.json holds
+ * user-specific data, and a file created with default permissions would be
+ * readable by other users on the machine.
+ */
+function updateSettings(agentDir: string, mutate: (settings: Record<string, unknown>) => void): void {
+  const settingsPath = join(agentDir, "settings.json");
+  let settings: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(`Could not read settings.json: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  mutate(settings);
+  const temporaryPath = `${settingsPath}.tmp-${process.pid}`;
+  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temporaryPath, settingsPath);
+}
+
+/**
  * Write `defaultProvider` and `defaultModel` into settings.json.
  *
  * Pi merges settings per field when it saves, so this value survives a later pi
@@ -200,27 +226,16 @@ export class StarStore {
  * falls back to its built-in per-provider defaults on the next start.
  */
 export function writeDefaultModel(agentDir: string, provider: string | undefined, modelId: string | undefined): void {
-  const settingsPath = join(agentDir, "settings.json");
-  const clearing = !(provider && modelId);
-  if (clearing && !existsSync(settingsPath)) return;
-  let settings: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(readFileSync(settingsPath, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
-    } catch (error) {
-      throw new Error(`Could not read settings.json: ${error instanceof Error ? error.message : String(error)}`);
+  if (!(provider && modelId) && !existsSync(join(agentDir, "settings.json"))) return;
+  updateSettings(agentDir, (settings) => {
+    if (provider && modelId) {
+      settings.defaultProvider = provider;
+      settings.defaultModel = modelId;
+    } else {
+      delete settings.defaultProvider;
+      delete settings.defaultModel;
     }
-  }
-  if (provider && modelId) {
-    settings.defaultProvider = provider;
-    settings.defaultModel = modelId;
-  } else {
-    delete settings.defaultProvider;
-    delete settings.defaultModel;
-  }
-  const temporaryPath = `${settingsPath}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`);
-  renameSync(temporaryPath, settingsPath);
+  });
 }
 
 /**
@@ -228,18 +243,8 @@ export function writeDefaultModel(agentDir: string, provider: string | undefined
  * saves, so this value survives a later pi write.
  */
 export function writeEnabledModels(agentDir: string, patterns: string[]): void {
-  const settingsPath = join(agentDir, "settings.json");
-  let settings: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(readFileSync(settingsPath, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
-    } catch (error) {
-      throw new Error(`Could not read settings.json: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  if (patterns.length > 0) settings.enabledModels = patterns;
-  else delete settings.enabledModels;
-  const temporaryPath = `${settingsPath}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`);
-  renameSync(temporaryPath, settingsPath);
+  updateSettings(agentDir, (settings) => {
+    if (patterns.length > 0) settings.enabledModels = patterns;
+    else delete settings.enabledModels;
+  });
 }
