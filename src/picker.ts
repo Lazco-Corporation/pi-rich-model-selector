@@ -36,10 +36,10 @@ export interface PickerOptions {
   onCancel(): void;
   /**
    * Set or clear the startup default model. Both arguments set it, both
-   * undefined clear it. Returns an error message on failure, or undefined on
-   * success.
+   * undefined clear it. Resolves to an error message on failure, or to
+   * undefined on success.
    */
-  onSetDefaultModel(provider: string | undefined, id: string | undefined): string | undefined;
+  onSetDefaultModel(provider: string | undefined, id: string | undefined): Promise<string | undefined>;
 }
 
 type Scope = "starred" | "all" | "hidden";
@@ -98,6 +98,8 @@ export class RichModelPicker extends Container implements Focusable {
   private statusTone: "muted" | "error" | "success" = "muted";
   private lastWidth = 0;
   private closed = false;
+  /** True while a startup-default write is on its way to settings.json. */
+  private defaultWriteInFlight = false;
 
   private _focused = false;
   get focused(): boolean {
@@ -394,15 +396,35 @@ export class RichModelPicker extends Container implements Focusable {
   }
 
   /** Make the model under the cursor the model pi starts with, or undo it. */
-  private toggleDefault(): void {
+  private async toggleDefault(): Promise<void> {
     const item = this.filtered[this.selectedIndex];
     if (!item) return;
+    // The write is not instant, so a second Ctrl+D can arrive while the first
+    // one runs. Two writes in flight would fight over the same two fields.
+    if (this.defaultWriteInFlight) return;
     const wasDefault = this.isDefault(item);
-    const error = this.options.onSetDefaultModel(wasDefault ? undefined : item.provider, wasDefault ? undefined : item.id);
+
+    this.defaultWriteInFlight = true;
+    let error: string | undefined;
+    try {
+      error = await this.options.onSetDefaultModel(
+        wasDefault ? undefined : item.provider,
+        wasDefault ? undefined : item.id,
+      );
+    } finally {
+      this.defaultWriteInFlight = false;
+    }
+
+    // The user may have closed the picker while the write ran.
+    if (this.closed) return;
+    // The row only moves after the file says so, so a failure leaves the
+    // picker exactly as it was.
     if (error) {
       this.setStatus(error, "error");
+      this.options.tui.requestRender();
       return;
     }
+
     this.options.defaultModel = wasDefault ? undefined : { provider: item.provider, id: item.id };
     this.setStatus(
       wasDefault ? "Cleared the startup default model." : `${item.id} is now the startup default. Restart pi to use it.`,
@@ -415,6 +437,8 @@ export class RichModelPicker extends Container implements Focusable {
     if (index >= 0) this.selectedIndex = index;
     else this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filtered.length - 1));
     this.updateList();
+    // handleInput already returned, so the render loop needs telling.
+    this.options.tui.requestRender();
   }
 
   private setStatus(message: string, tone: "muted" | "error" | "success" = "muted"): void {
@@ -605,7 +629,9 @@ export class RichModelPicker extends Container implements Focusable {
       return;
     }
     if (matchesKey(data, "ctrl+d")) {
-      this.toggleDefault();
+      // handleInput is synchronous. toggleDefault redraws on its own when the
+      // write finishes, and reports its own failure, so nothing awaits it.
+      void this.toggleDefault();
       return;
     }
     if (matchesKey(data, "tab")) {

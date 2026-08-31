@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { RichModelPicker } from "./picker.ts";
-import { StarStore, writeDefaultModel, writeEnabledModels } from "./store.ts";
+import { hasEnabledModels, readDefaultModel, StarStore, writeDefaultModel, writeEnabledModels } from "./store.ts";
 
 const STORE_FILE = "rich-model-selector.json";
 
@@ -15,17 +14,8 @@ function getStore(): StarStore {
   return store;
 }
 
-/** Read the startup default model straight from settings.json. */
-function readDefaultModel(): { provider: string; id: string } | undefined {
-  try {
-    const settingsPath = join(getAgentDir(), "settings.json");
-    const raw = readFileSync(settingsPath, "utf8");
-    const settings = JSON.parse(raw.replace(/^\uFEFF/, "")) as { defaultProvider?: string; defaultModel?: string };
-    if (!settings.defaultModel) return undefined;
-    return { provider: settings.defaultProvider ?? "", id: settings.defaultModel };
-  } catch {
-    return undefined;
-  }
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch?: string): Promise<void> {
@@ -34,25 +24,30 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
     return;
   }
 
+  // Both files may have changed since this session started, by hand or from
+  // another pi session. Read them now, so the picker opens on what is true.
+  const activeStore = getStore();
+  activeStore.reload();
+
   const usage = ctx.getContextUsage();
   const selected = await ctx.ui.custom<Model<any> | undefined>((tui, theme, _keybindings, done) => {
     return new RichModelPicker({
       tui,
       theme,
-      store: getStore(),
+      store: activeStore,
       registry: ctx.modelRegistry,
       currentModel: ctx.model,
-      defaultModel: readDefaultModel(),
+      defaultModel: readDefaultModel(ctx.cwd, getAgentDir()),
       contextTokens: usage?.tokens ?? null,
       initialSearch,
       onSelect: (model) => done(model),
       onCancel: () => done(undefined),
-      onSetDefaultModel: (provider, id) => {
+      onSetDefaultModel: async (provider, id) => {
         try {
-          writeDefaultModel(getAgentDir(), provider, id);
+          await writeDefaultModel(ctx.cwd, getAgentDir(), provider, id);
           return undefined;
         } catch (error) {
-          return `Could not update settings.json: ${error instanceof Error ? error.message : String(error)}`;
+          return `Could not update settings.json: ${describeError(error)}`;
         }
       },
     });
@@ -204,17 +199,18 @@ export default function (pi: ExtensionAPI) {
       const argument = args.trim();
 
       if (argument === "sync") {
+        // Another session or a hand edit may have changed the stars.
+        getStore().reload();
         const starred = getStore().getStarred();
         if (starred.length === 0) {
           ctx.ui.notify("Star at least one model first.", "warning");
           return;
         }
         try {
-          writeEnabledModels(getAgentDir(), starred);
-          getStore().setSyncEnabledModels(true);
+          await writeEnabledModels(ctx.cwd, getAgentDir(), starred);
           ctx.ui.notify(`Wrote ${starred.length} starred models to settings.json. Restart pi to use the new cycle order.`, "info");
         } catch (error) {
-          ctx.ui.notify(`Could not write settings.json: ${error instanceof Error ? error.message : String(error)}`, "error");
+          ctx.ui.notify(`Could not write settings.json: ${describeError(error)}`, "error");
         }
         return;
       }
@@ -233,12 +229,17 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (argument === "unsync") {
+        // Read the file, not a remembered flag. The user may have removed
+        // enabledModels by hand since this session started.
+        if (!hasEnabledModels(ctx.cwd, getAgentDir())) {
+          ctx.ui.notify("settings.json has no enabledModels list. Nothing to undo.", "warning");
+          return;
+        }
         try {
-          writeEnabledModels(getAgentDir(), []);
-          getStore().setSyncEnabledModels(false);
+          await writeEnabledModels(ctx.cwd, getAgentDir(), []);
           ctx.ui.notify("Removed enabledModels from settings.json. Restart pi to apply.", "info");
         } catch (error) {
-          ctx.ui.notify(`Could not write settings.json: ${error instanceof Error ? error.message : String(error)}`, "error");
+          ctx.ui.notify(`Could not write settings.json: ${describeError(error)}`, "error");
         }
         return;
       }

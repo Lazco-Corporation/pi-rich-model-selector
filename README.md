@@ -165,7 +165,6 @@ The file is `~/.pi/agent/rich-model-selector.json`.
   "version": 1,
   "starred": ["<provider>/<model-id>"],
   "hidden": ["<provider>/<another-model-id>"],
-  "syncEnabledModels": false,
   "hideBuiltinModelCommand": false
 }
 ```
@@ -174,6 +173,27 @@ The `starred` list is in your chosen order.
 The `hidden` list has no order.
 
 If a model leaves your catalog, the picker drops it from both lists.
+
+## Editing the files while pi runs
+
+You can edit `settings.json` or `rich-model-selector.json` by hand at any time.
+You can also run two pi sessions at once.
+The picker reads both files every time it opens, so it shows your edit.
+
+A write keeps the fields it does not own:
+
+- Pi owns `settings.json`, so the picker writes it through pi.
+  Pi takes a file lock, re-reads the file, and changes only its own fields.
+- The picker writes the star file the same way.
+  It re-reads the file first, then applies only the fields you changed.
+
+So a star set in one session and a hidden model set in another both stay.
+
+One case still picks a winner.
+Two sessions that change the **same** field in the same fraction of a second
+keep the later write only.
+An example is two sessions that star a model at the same moment.
+Open the picker again to see what the file holds.
 
 ## Make Ctrl+P follow your star order
 
@@ -199,7 +219,7 @@ Only your starred models stay available after a sync.
 | `picker.ts` | the picker component |
 | `window.ts` | the window frame that draws the border, the title, and the hint |
 | `model-facts.ts` | turns a model into the text you see |
-| `store.ts` | reads and writes the star file |
+| `store.ts` | reads and writes the star file and the pi settings file |
 
 All files sit under `src/`.
 

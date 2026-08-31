@@ -1,15 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
 export interface StoreData {
   version: number;
   starred: string[];
   /** Models kept out of the list. A star always wins over a hide. */
   hidden: string[];
-  syncEnabledModels: boolean;
   /** Hide the built-in /model entry from the slash command menu. */
   hideBuiltinModelCommand: boolean;
 }
+
+/** The fields a write may own. `version` is constant, so it never merges. */
+type MergeableField = "starred" | "hidden" | "hideBuiltinModelCommand";
 
 const CURRENT_VERSION = 1;
 
@@ -18,8 +21,17 @@ function emptyData(): StoreData {
     version: CURRENT_VERSION,
     starred: [],
     hidden: [],
-    syncEnabledModels: false,
     hideBuiltinModelCommand: false,
+  };
+}
+
+function parseData(raw: string): StoreData {
+  const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as Partial<StoreData>;
+  return {
+    version: CURRENT_VERSION,
+    starred: Array.isArray(parsed.starred) ? parsed.starred.filter((key) => typeof key === "string") : [],
+    hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((key) => typeof key === "string") : [],
+    hideBuiltinModelCommand: parsed.hideBuiltinModelCommand === true,
   };
 }
 
@@ -34,6 +46,12 @@ export function modelKey(provider: string, id: string): string {
 export class StarStore {
   private data: StoreData = emptyData();
   private saveTimer: NodeJS.Timeout | undefined;
+  /**
+   * Fields this process changed since the last write. A write applies only
+   * these onto the file as it is on disk right now, so a change another pi
+   * process or a hand edit made to a different field survives.
+   */
+  private readonly modifiedFields = new Set<MergeableField>();
 
   constructor(private readonly filePath: string) {
     this.load();
@@ -42,29 +60,71 @@ export class StarStore {
   private load(): void {
     if (!existsSync(this.filePath)) return;
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<StoreData>;
-      this.data = {
-        version: CURRENT_VERSION,
-        starred: Array.isArray(parsed.starred) ? parsed.starred.filter((key) => typeof key === "string") : [],
-        hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((key) => typeof key === "string") : [],
-        syncEnabledModels: parsed.syncEnabledModels === true,
-        hideBuiltinModelCommand: parsed.hideBuiltinModelCommand === true,
-      };
+      this.data = parseData(readFileSync(this.filePath, "utf8"));
     } catch {
       this.data = emptyData();
     }
   }
 
-  /** Write through a temporary file so a crash cannot leave a half-written file. */
+  /**
+   * Re-read the file, keeping changes this process has not written yet.
+   *
+   * A long-lived session holds its copy for hours. In that time the user may
+   * edit the file by hand, or another pi session may star a model. Without this
+   * the session keeps showing its old copy.
+   */
+  reload(): void {
+    // A pending debounced change is not on disk yet, so it would be lost.
+    this.flush();
+    this.load();
+  }
+
+  /**
+   * Write through a temporary file so a crash cannot leave a half-written file.
+   *
+   * The file on disk is the base, not the copy this process loaded at start.
+   * Writing the whole in-memory copy back would drop every change made after
+   * that load. The temporary file carries the process id, so two pi processes
+   * cannot write the same temporary file at once.
+   */
   private writeNow(): void {
     const directory = dirname(this.filePath);
     if (!existsSync(directory)) mkdirSync(directory, { recursive: true });
-    const temporaryPath = `${this.filePath}.tmp`;
-    writeFileSync(temporaryPath, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temporaryPath, this.filePath);
+
+    let merged = emptyData();
+    if (existsSync(this.filePath)) {
+      try {
+        merged = parseData(readFileSync(this.filePath, "utf8"));
+      } catch {
+        // An unreadable file cannot be merged. This process owns the result.
+        merged = emptyData();
+      }
+    }
+    for (const field of this.modifiedFields) {
+      if (field === "hideBuiltinModelCommand") merged.hideBuiltinModelCommand = this.data.hideBuiltinModelCommand;
+      else merged[field] = [...this.data[field]];
+    }
+
+    const temporaryPath = `${this.filePath}.tmp-${process.pid}`;
+    try {
+      writeFileSync(temporaryPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
+      renameSync(temporaryPath, this.filePath);
+    } catch (error) {
+      try {
+        unlinkSync(temporaryPath);
+      } catch {
+        // The file may not exist, which is fine.
+      }
+      throw error;
+    }
+    // Nothing can run between the read above and this line, because every call
+    // here is synchronous. So the merged result is the whole truth now.
+    this.data = merged;
+    this.modifiedFields.clear();
   }
 
-  private scheduleSave(): void {
+  private scheduleSave(field: MergeableField): void {
+    this.modifiedFields.add(field);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined;
@@ -104,13 +164,13 @@ export class StarStore {
     const index = this.data.starred.indexOf(key);
     if (index >= 0) {
       this.data.starred.splice(index, 1);
-      this.scheduleSave();
+      this.scheduleSave("starred");
       return false;
     }
     this.data.starred.push(key);
     // A starred model must stay visible, so a star clears the hide.
-    this.unhide(key);
-    this.scheduleSave();
+    if (this.unhide(key)) this.scheduleSave("hidden");
+    this.scheduleSave("starred");
     return true;
   }
 
@@ -125,13 +185,16 @@ export class StarStore {
   /** Returns the new hidden state. Hiding a starred model also drops the star. */
   toggleHidden(key: string): boolean {
     if (this.unhide(key)) {
-      this.scheduleSave();
+      this.scheduleSave("hidden");
       return false;
     }
     const starIndex = this.data.starred.indexOf(key);
-    if (starIndex >= 0) this.data.starred.splice(starIndex, 1);
+    if (starIndex >= 0) {
+      this.data.starred.splice(starIndex, 1);
+      this.scheduleSave("starred");
+    }
     this.data.hidden.push(key);
-    this.scheduleSave();
+    this.scheduleSave("hidden");
     return true;
   }
 
@@ -146,7 +209,7 @@ export class StarStore {
     const count = this.data.hidden.length;
     if (count === 0) return 0;
     this.data.hidden = [];
-    this.scheduleSave();
+    this.scheduleSave("hidden");
     return count;
   }
 
@@ -159,7 +222,7 @@ export class StarStore {
     const [entry] = this.data.starred.splice(index, 1);
     if (entry === undefined) return false;
     this.data.starred.splice(target, 0, entry);
-    this.scheduleSave();
+    this.scheduleSave("starred");
     return true;
   }
 
@@ -168,18 +231,10 @@ export class StarStore {
     const keptStars = this.data.starred.filter((key) => availableKeys.has(key));
     const keptHidden = this.data.hidden.filter((key) => availableKeys.has(key));
     if (keptStars.length === this.data.starred.length && keptHidden.length === this.data.hidden.length) return;
+    if (keptStars.length !== this.data.starred.length) this.scheduleSave("starred");
+    if (keptHidden.length !== this.data.hidden.length) this.scheduleSave("hidden");
     this.data.starred = keptStars;
     this.data.hidden = keptHidden;
-    this.scheduleSave();
-  }
-
-  getSyncEnabledModels(): boolean {
-    return this.data.syncEnabledModels;
-  }
-
-  setSyncEnabledModels(value: boolean): void {
-    this.data.syncEnabledModels = value;
-    this.scheduleSave();
   }
 
   getHideBuiltinModelCommand(): boolean {
@@ -188,75 +243,84 @@ export class StarStore {
 
   setHideBuiltinModelCommand(value: boolean): void {
     this.data.hideBuiltinModelCommand = value;
-    this.scheduleSave();
+    this.scheduleSave("hideBuiltinModelCommand");
   }
 }
 
 /**
- * Read settings.json, apply one mutation, and write the result back.
+ * Open settings.json, apply one change, and write it back.
  *
- * The write goes through a process-specific temporary file, so two pi
- * processes cannot write the same temporary file at once. Synchronous calls in
- * one process cannot interleave, so the process id is enough to name the file.
- * The file gets the same private mode as the store file: settings.json holds
- * user-specific data, and a file created with default permissions would be
- * readable by other users on the machine.
+ * Pi owns settings.json, so pi writes it. `SettingsManager` takes a real file
+ * lock, re-reads the file inside that lock, and writes back only the fields
+ * this call changed. That gives three things a hand-rolled writer does not:
+ *
+ * 1. Two pi processes cannot lose each other's change (issue #4).
+ * 2. A field the user edited by hand survives, because the merge base is the
+ *    file on disk, not a copy this process read earlier.
+ * 3. A field pi itself wrote survives, for the same reason.
+ *
+ * The manager is built per call and thrown away. It must never be cached: a
+ * cached one holds an old copy of the file, which is the bug this avoids.
  */
-function updateSettings(agentDir: string, mutate: (settings: Record<string, unknown>) => void): void {
-  const settingsPath = join(agentDir, "settings.json");
-  let settings: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(readFileSync(settingsPath, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
-    } catch (error) {
-      throw new Error(`Could not read settings.json: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  mutate(settings);
-  const temporaryPath = `${settingsPath}.tmp-${process.pid}`;
-  try {
-    writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temporaryPath, settingsPath);
-  } catch (error) {
-    // A failed rename would otherwise leave a settings snapshot behind. The
-    // pid in the name makes every process leave its own stray file, so the
-    // cleanup must run here, not on the next write.
-    try {
-      unlinkSync(temporaryPath);
-    } catch {
-      // The file may not exist, which is fine.
-    }
-    throw error;
-  }
+async function updateSettings(cwd: string, agentDir: string, mutate: (settings: SettingsManager) => void): Promise<void> {
+  const manager = SettingsManager.create(cwd, agentDir);
+  mutate(manager);
+  await manager.flush();
+  // A queued write reports failure here instead of throwing, and a settings.json
+  // that does not parse makes the manager skip the write. Both must be loud.
+  const errors = manager.drainErrors();
+  const failure = errors[0];
+  if (failure) throw failure.error;
 }
 
 /**
- * Write `defaultProvider` and `defaultModel` into settings.json.
- *
- * Pi merges settings per field when it saves, so this value survives a later pi
- * write. A call with an undefined provider or id clears both fields, and pi
- * falls back to its built-in per-provider defaults on the next start.
+ * Read the model pi starts with. Reads the file every call, so it shows a hand
+ * edit or another session's change instead of a copy from session start.
  */
-export function writeDefaultModel(agentDir: string, provider: string | undefined, modelId: string | undefined): void {
-  if (!(provider && modelId) && !existsSync(join(agentDir, "settings.json"))) return;
-  updateSettings(agentDir, (settings) => {
-    if (provider && modelId) {
-      settings.defaultProvider = provider;
-      settings.defaultModel = modelId;
-    } else {
-      delete settings.defaultProvider;
-      delete settings.defaultModel;
+export function readDefaultModel(cwd: string, agentDir: string): { provider: string; id: string } | undefined {
+  // Global scope only. Ctrl+D writes the global file, so reading the merged
+  // global-plus-project view would show a default this picker cannot clear.
+  const settings = SettingsManager.create(cwd, agentDir).getGlobalSettings();
+  if (!settings.defaultModel) return undefined;
+  return { provider: settings.defaultProvider ?? "", id: settings.defaultModel };
+}
+
+/**
+ * Write `defaultProvider` and `defaultModel` into settings.json. A call with an
+ * undefined provider or id clears both fields, and pi falls back to its
+ * built-in per-provider defaults on the next start.
+ */
+export async function writeDefaultModel(
+  cwd: string,
+  agentDir: string,
+  provider: string | undefined,
+  modelId: string | undefined,
+): Promise<void> {
+  await updateSettings(cwd, agentDir, (settings) => {
+    // undefined removes the field: `JSON.stringify` drops an undefined value,
+    // and pi's own optional setters, such as `setShellPath`, take undefined the
+    // same way. Only these two setters miss it in their type.
+    const clearable = settings as SettingsManager & {
+      setDefaultProvider(value: string | undefined): void;
+      setDefaultModel(value: string | undefined): void;
+    };
+    if (provider && modelId) settings.setDefaultModelAndProvider(provider, modelId);
+    else {
+      clearable.setDefaultProvider(undefined);
+      clearable.setDefaultModel(undefined);
     }
   });
 }
 
-/**
- * Write `enabledModels` into settings.json. Pi merges settings per field when it
- * saves, so this value survives a later pi write.
- */
-export function writeEnabledModels(agentDir: string, patterns: string[]): void {
-  updateSettings(agentDir, (settings) => {
-    if (patterns.length > 0) settings.enabledModels = patterns;
-    else delete settings.enabledModels;
+/** True when settings.json currently scopes pi to a model list. */
+export function hasEnabledModels(cwd: string, agentDir: string): boolean {
+  const patterns = SettingsManager.create(cwd, agentDir).getGlobalSettings().enabledModels;
+  return Array.isArray(patterns) && patterns.length > 0;
+}
+
+/** Write `enabledModels` into settings.json. An empty list removes the field. */
+export async function writeEnabledModels(cwd: string, agentDir: string, patterns: string[]): Promise<void> {
+  await updateSettings(cwd, agentDir, (settings) => {
+    settings.setEnabledModels(patterns.length > 0 ? patterns : undefined);
   });
 }
