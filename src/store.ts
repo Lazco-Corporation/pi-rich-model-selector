@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
+import lockfile from "proper-lockfile";
 
 export interface StoreData {
   version: number;
@@ -38,6 +39,43 @@ function fileRevision(path: string): string | undefined {
     return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeNs}`;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Run one read-merge-write while holding the star file lock.
+ *
+ * Without the lock, two pi processes read the same file, each merges its own
+ * field onto that copy, and the later rename drops the other one's field. The
+ * merge alone is not enough: it narrows the loss to the gap between the read
+ * and the rename, but the gap is still there.
+ *
+ * The same lock library pi uses for settings.json. A crashed holder frees the
+ * lock through the library's stale timeout, so a dead process cannot wedge the
+ * picker.
+ */
+function withFileLock<T>(path: string, operation: () => T): T {
+  const maxAttempts = 10;
+  const retryDelayMs = 20;
+  let release: (() => void) | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // realpath: false, because the file may not exist yet.
+      release = lockfile.lockSync(path, { realpath: false });
+      break;
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== "ELOCKED" || attempt === maxAttempts) throw error;
+      const start = Date.now();
+      while (Date.now() - start < retryDelayMs) {
+        // Sleep in place. Every caller here is synchronous.
+      }
+    }
+  }
+  try {
+    return operation();
+  } finally {
+    release?.();
   }
 }
 
@@ -80,12 +118,10 @@ export class StarStore {
     // the stat would then leave a revision older than the data, and the next
     // check would re-read. The other order could skip that change instead.
     const revision = fileRevision(this.filePath);
-    if (!existsSync(this.filePath)) {
-      this.revision = revision;
-      return;
-    }
     try {
-      this.data = parseData(readFileSync(this.filePath, "utf8"));
+      // A missing file means the user deleted it to start over. Keeping the
+      // copy in memory would put every star back on the next write.
+      this.data = existsSync(this.filePath) ? parseData(readFileSync(this.filePath, "utf8")) : emptyData();
     } catch {
       this.data = emptyData();
     }
@@ -101,7 +137,9 @@ export class StarStore {
    */
   reload(): void {
     // A pending debounced change is not on disk yet, so it would be lost.
-    this.flush();
+    // A failed write keeps that change in memory, so re-reading now would
+    // throw the user's work away. Keep it, and let the next write retry.
+    if (!this.flush()) return;
     this.load();
   }
 
@@ -129,39 +167,47 @@ export class StarStore {
     const directory = dirname(this.filePath);
     if (!existsSync(directory)) mkdirSync(directory, { recursive: true });
 
-    let merged = emptyData();
-    if (existsSync(this.filePath)) {
-      try {
-        merged = parseData(readFileSync(this.filePath, "utf8"));
-      } catch {
-        // An unreadable file cannot be merged. This process owns the result.
-        merged = emptyData();
+    withFileLock(this.filePath, () => {
+      let merged = emptyData();
+      if (existsSync(this.filePath)) {
+        try {
+          merged = parseData(readFileSync(this.filePath, "utf8"));
+        } catch {
+          // An unreadable file cannot be merged. This process owns the result.
+          merged = emptyData();
+        }
       }
-    }
-    for (const field of this.modifiedFields) {
-      if (field === "hideBuiltinModelCommand") merged.hideBuiltinModelCommand = this.data.hideBuiltinModelCommand;
-      else merged[field] = [...this.data[field]];
-    }
+      for (const field of this.modifiedFields) {
+        if (field === "hideBuiltinModelCommand") merged.hideBuiltinModelCommand = this.data.hideBuiltinModelCommand;
+        else merged[field] = [...this.data[field]];
+      }
+      // A star and a hide are one choice held in two lists, so a merge of one
+      // list against the other list from disk can put a model in both. The
+      // picker would then show it starred and hidden at once. A star wins,
+      // which is the rule toggleStar and toggleHidden already follow.
+      merged.hidden = merged.hidden.filter((key) => !merged.starred.includes(key));
 
-    const temporaryPath = `${this.filePath}.tmp-${process.pid}`;
-    try {
-      writeFileSync(temporaryPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
-      renameSync(temporaryPath, this.filePath);
-    } catch (error) {
+      const temporaryPath = `${this.filePath}.tmp-${process.pid}`;
       try {
-        unlinkSync(temporaryPath);
-      } catch {
-        // The file may not exist, which is fine.
+        writeFileSync(temporaryPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
+        renameSync(temporaryPath, this.filePath);
+      } catch (error) {
+        try {
+          unlinkSync(temporaryPath);
+        } catch {
+          // The file may not exist, which is fine.
+        }
+        throw error;
       }
-      throw error;
-    }
-    // Nothing can run between the read above and this line, because every call
-    // here is synchronous. So the merged result is the whole truth now.
-    this.data = merged;
-    this.modifiedFields.clear();
-    // This process wrote the file, so its own write must not look like an
-    // outside change to reloadIfChanged.
-    this.revision = fileRevision(this.filePath);
+      // Nothing can run between the read above and this line, because every
+      // call here is synchronous and the lock is held. So the merged result is
+      // the whole truth now.
+      this.data = merged;
+      this.modifiedFields.clear();
+      // This process wrote the file, so its own write must not look like an
+      // outside change to reloadIfChanged.
+      this.revision = fileRevision(this.filePath);
+    });
   }
 
   private scheduleSave(field: MergeableField): void {
@@ -177,15 +223,27 @@ export class StarStore {
     }, 150);
   }
 
-  flush(): void {
-    if (!this.saveTimer) return;
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
+  /**
+   * Write any pending change now. Returns false when the change is still only
+   * in memory, so the caller knows the file does not hold it yet.
+   *
+   * A cleared timer does not mean the file is current: a write that failed
+   * leaves no timer and an unsaved change. So the answer comes from the
+   * modified field set, not from the timer. A failed write keeps that set, so
+   * this retries on the next call instead of dropping the user's work.
+   */
+  flush(): boolean {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = undefined;
+    }
+    if (this.modifiedFields.size === 0) return true;
     try {
       this.writeNow();
     } catch {
-      // Same reason as scheduleSave.
+      // Same reason as scheduleSave. writeNow keeps modifiedFields on failure.
     }
+    return this.modifiedFields.size === 0;
   }
 
   getStarred(): string[] {

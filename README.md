@@ -185,7 +185,7 @@ A write keeps the fields it does not own:
 - Pi owns `settings.json`, so the picker writes it through pi.
   Pi takes a file lock, re-reads the file, and changes only its own fields.
 - The picker writes the star file the same way.
-  It re-reads the file first, then applies only the fields you changed.
+  It takes a lock, re-reads the file, then applies only the fields you changed.
 
 So a star set in one session and a hidden model set in another both stay.
 
@@ -198,9 +198,10 @@ Two limits are left.
 First, the picker reads the files when it opens, not while it is open.
 An edit made while the picker is on screen shows the next time you open it.
 
-Second, two sessions that change the **same** field in the same fraction of a
-second keep the later write only.
-An example is two sessions that star a model at the same moment.
+Second, two sessions that change the **same** field keep the later write only.
+The lock makes each write whole, but a session writes the star list it read
+when its picker opened.
+An example is two sessions that both star a model before either one closes.
 Open the picker again to see what the file holds.
 
 ## Make Ctrl+P follow your star order
