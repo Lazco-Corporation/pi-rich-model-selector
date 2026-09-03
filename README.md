@@ -189,9 +189,17 @@ A write keeps the fields it does not own:
 
 So a star set in one session and a hidden model set in another both stay.
 
-One case still picks a winner.
-Two sessions that change the **same** field in the same fraction of a second
-keep the later write only.
+The command menu follows `hideBuiltinModelCommand` on the next keystroke.
+Run `/models hide` in one session, and the other session drops `/model` from
+the menu without a restart and without opening the picker.
+
+Two limits are left.
+
+First, the picker reads the files when it opens, not while it is open.
+An edit made while the picker is on screen shows the next time you open it.
+
+Second, two sessions that change the **same** field in the same fraction of a
+second keep the later write only.
 An example is two sessions that star a model at the same moment.
 Open the picker again to see what the file holds.
 

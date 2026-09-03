@@ -183,7 +183,12 @@ export default function (pi: ExtensionAPI) {
       triggerCharacters: current.triggerCharacters,
       getSuggestions: async (lines, cursorLine, cursorCol, options) => {
         const result = await current.getSuggestions(lines, cursorLine, cursorCol, options);
-        if (!result || !getStore().getHideBuiltinModelCommand()) return result;
+        if (!result) return result;
+        // This runs on a keystroke, and the setting may have changed since the
+        // last one, from a hand edit or from another pi session. Re-read only
+        // when the file moved, so the common keystroke costs one stat.
+        getStore().reloadIfChanged();
+        if (!getStore().getHideBuiltinModelCommand()) return result;
         const items = result.items.filter((item) => item.value !== "model" && item.label !== "/model");
         return { ...result, items };
       },

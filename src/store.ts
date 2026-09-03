@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
@@ -23,6 +23,22 @@ function emptyData(): StoreData {
     hidden: [],
     hideBuiltinModelCommand: false,
   };
+}
+
+/**
+ * A short string that changes when the file changes.
+ *
+ * The inode is in it on purpose. A write swaps the file through rename, so the
+ * inode is new every time. That catches a second write inside the same clock
+ * tick, which a timestamp alone would miss.
+ */
+function fileRevision(path: string): string | undefined {
+  try {
+    const stats = statSync(path, { bigint: true });
+    return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeNs}`;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseData(raw: string): StoreData {
@@ -52,18 +68,28 @@ export class StarStore {
    * process or a hand edit made to a different field survives.
    */
   private readonly modifiedFields = new Set<MergeableField>();
+  /** The revision this copy came from. Undefined when the file was missing. */
+  private revision: string | undefined;
 
   constructor(private readonly filePath: string) {
     this.load();
   }
 
   private load(): void {
-    if (!existsSync(this.filePath)) return;
+    // Read the revision first. A write that lands between the read below and
+    // the stat would then leave a revision older than the data, and the next
+    // check would re-read. The other order could skip that change instead.
+    const revision = fileRevision(this.filePath);
+    if (!existsSync(this.filePath)) {
+      this.revision = revision;
+      return;
+    }
     try {
       this.data = parseData(readFileSync(this.filePath, "utf8"));
     } catch {
       this.data = emptyData();
     }
+    this.revision = revision;
   }
 
   /**
@@ -77,6 +103,18 @@ export class StarStore {
     // A pending debounced change is not on disk yet, so it would be lost.
     this.flush();
     this.load();
+  }
+
+  /**
+   * Re-read only when the file changed since this copy was made.
+   *
+   * For callers that run often, such as the autocomplete provider on every
+   * keystroke. A stat is far cheaper than a read plus a JSON parse, and the
+   * file changes almost never.
+   */
+  reloadIfChanged(): void {
+    if (fileRevision(this.filePath) === this.revision) return;
+    this.reload();
   }
 
   /**
@@ -121,6 +159,9 @@ export class StarStore {
     // here is synchronous. So the merged result is the whole truth now.
     this.data = merged;
     this.modifiedFields.clear();
+    // This process wrote the file, so its own write must not look like an
+    // outside change to reloadIfChanged.
+    this.revision = fileRevision(this.filePath);
   }
 
   private scheduleSave(field: MergeableField): void {
