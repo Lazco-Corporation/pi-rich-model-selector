@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export interface StoreData {
@@ -193,10 +193,16 @@ export class StarStore {
 }
 
 /**
- * Write `enabledModels` into settings.json. Pi merges settings per field when it
- * saves, so this value survives a later pi write.
+ * Read settings.json, apply one mutation, and write the result back.
+ *
+ * The write goes through a process-specific temporary file, so two pi
+ * processes cannot write the same temporary file at once. Synchronous calls in
+ * one process cannot interleave, so the process id is enough to name the file.
+ * The file gets the same private mode as the store file: settings.json holds
+ * user-specific data, and a file created with default permissions would be
+ * readable by other users on the machine.
  */
-export function writeEnabledModels(agentDir: string, patterns: string[]): void {
+function updateSettings(agentDir: string, mutate: (settings: Record<string, unknown>) => void): void {
   const settingsPath = join(agentDir, "settings.json");
   let settings: Record<string, unknown> = {};
   if (existsSync(settingsPath)) {
@@ -206,9 +212,51 @@ export function writeEnabledModels(agentDir: string, patterns: string[]): void {
       throw new Error(`Could not read settings.json: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (patterns.length > 0) settings.enabledModels = patterns;
-  else delete settings.enabledModels;
-  const temporaryPath = `${settingsPath}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`);
-  renameSync(temporaryPath, settingsPath);
+  mutate(settings);
+  const temporaryPath = `${settingsPath}.tmp-${process.pid}`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, settingsPath);
+  } catch (error) {
+    // A failed rename would otherwise leave a settings snapshot behind. The
+    // pid in the name makes every process leave its own stray file, so the
+    // cleanup must run here, not on the next write.
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // The file may not exist, which is fine.
+    }
+    throw error;
+  }
+}
+
+/**
+ * Write `defaultProvider` and `defaultModel` into settings.json.
+ *
+ * Pi merges settings per field when it saves, so this value survives a later pi
+ * write. A call with an undefined provider or id clears both fields, and pi
+ * falls back to its built-in per-provider defaults on the next start.
+ */
+export function writeDefaultModel(agentDir: string, provider: string | undefined, modelId: string | undefined): void {
+  if (!(provider && modelId) && !existsSync(join(agentDir, "settings.json"))) return;
+  updateSettings(agentDir, (settings) => {
+    if (provider && modelId) {
+      settings.defaultProvider = provider;
+      settings.defaultModel = modelId;
+    } else {
+      delete settings.defaultProvider;
+      delete settings.defaultModel;
+    }
+  });
+}
+
+/**
+ * Write `enabledModels` into settings.json. Pi merges settings per field when it
+ * saves, so this value survives a later pi write.
+ */
+export function writeEnabledModels(agentDir: string, patterns: string[]): void {
+  updateSettings(agentDir, (settings) => {
+    if (patterns.length > 0) settings.enabledModels = patterns;
+    else delete settings.enabledModels;
+  });
 }

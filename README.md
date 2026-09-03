@@ -64,6 +64,7 @@ The choice lives in `~/.pi/agent/rich-model-selector.json`.
 | type any text | filter the list |
 | `Up` / `Down` | move the cursor |
 | `Ctrl+S` | star the model, or remove the star |
+| `Ctrl+D` | make this model the startup default, or clear the default |
 | `Ctrl+E` | hide the model, or bring it back |
 | `Ctrl+Up` / `Ctrl+Down` | move a starred model up or down |
 | `Alt+Up` / `Alt+Down` | move a starred model up or down (backup) |
@@ -88,6 +89,18 @@ You have two choices:
    Clear the check box for Mission Control and for Application windows.
 
 The picker opens with the cursor on the model you use now.
+
+## Set the model pi starts with
+
+Press `Ctrl+D` on the model under the cursor.
+The picker writes `defaultProvider` and `defaultModel` into `~/.pi/agent/settings.json`,
+so the next `pi` run opens with that model.
+
+Press `Ctrl+D` again on the model that is the default now.
+The picker clears both fields, and pi falls back to its own per-provider defaults.
+
+A change needs a restart to take effect, because pi reads the setting at start.
+The row in the picker updates at once.
 
 ## Hide a model you never use
 
@@ -128,7 +141,7 @@ The title sits on the left of the top border.
 The key hints sit on the right of the same line.
 
 ```
-╭─ Select a model ── ↵ · ^S★ · ^↑↓ · ^E · ⇥ · esc ─╮
+╭─ Select a model ── ↵ · ^S★ · ^↑↓ · ^D · ^E · ⇥ · esc ─╮
 │ View: starred | all | hidden  2 starred, 1 hidden, 3 total │
 │ >                                         │
 ├───────────────────────┬─────────────────┤

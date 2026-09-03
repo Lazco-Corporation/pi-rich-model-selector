@@ -34,6 +34,12 @@ export interface PickerOptions {
   initialSearch?: string;
   onSelect(model: Model<any>): void;
   onCancel(): void;
+  /**
+   * Set or clear the startup default model. Both arguments set it, both
+   * undefined clear it. Returns an error message on failure, or undefined on
+   * success.
+   */
+  onSetDefaultModel(provider: string | undefined, id: string | undefined): string | undefined;
 }
 
 type Scope = "starred" | "all" | "hidden";
@@ -387,6 +393,30 @@ export class RichModelPicker extends Container implements Focusable {
     }
   }
 
+  /** Make the model under the cursor the model pi starts with, or undo it. */
+  private toggleDefault(): void {
+    const item = this.filtered[this.selectedIndex];
+    if (!item) return;
+    const wasDefault = this.isDefault(item);
+    const error = this.options.onSetDefaultModel(wasDefault ? undefined : item.provider, wasDefault ? undefined : item.id);
+    if (error) {
+      this.setStatus(error, "error");
+      return;
+    }
+    this.options.defaultModel = wasDefault ? undefined : { provider: item.provider, id: item.id };
+    this.setStatus(
+      wasDefault ? "Cleared the startup default model." : `${item.id} is now the startup default. Restart pi to use it.`,
+      "success",
+    );
+    // The sort puts the default model near the front, so the write moves the
+    // row. Re-filter and re-find the row, like toggleStar does.
+    this.applyFilter();
+    const index = this.filtered.findIndex((entry) => entry.key === item.key);
+    if (index >= 0) this.selectedIndex = index;
+    else this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filtered.length - 1));
+    this.updateList();
+  }
+
   private setStatus(message: string, tone: "muted" | "error" | "success" = "muted"): void {
     this.status = message;
     this.statusTone = tone;
@@ -407,6 +437,7 @@ export class RichModelPicker extends Container implements Focusable {
         { long: "Enter pick", short: "↵" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+↑/↓ reorder", short: "^↑↓" },
+        { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
         { long: "Tab all", short: "⇥" },
         { long: "Esc close", short: "esc" },
@@ -415,6 +446,7 @@ export class RichModelPicker extends Container implements Focusable {
       hints = [
         { long: "Enter pick", short: "↵" },
         { long: "Ctrl+E restore", short: "^E" },
+        { long: "Ctrl+D default", short: "^D" },
         { long: "Tab starred", short: "⇥" },
         { long: "Esc close", short: "esc" },
       ];
@@ -422,6 +454,7 @@ export class RichModelPicker extends Container implements Focusable {
       hints = [
         { long: "Enter pick", short: "↵" },
         { long: "Ctrl+S star", short: "^S★" },
+        { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
         { long: "Tab hidden", short: "⇥" },
         { long: "Esc close", short: "esc" },
@@ -569,6 +602,10 @@ export class RichModelPicker extends Container implements Focusable {
     // others, so ctrl+h would delete search text on the wrong terminal.
     if (matchesKey(data, "ctrl+e")) {
       this.toggleHidden();
+      return;
+    }
+    if (matchesKey(data, "ctrl+d")) {
+      this.toggleDefault();
       return;
     }
     if (matchesKey(data, "tab")) {
