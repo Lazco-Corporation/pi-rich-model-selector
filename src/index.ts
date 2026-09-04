@@ -53,6 +53,13 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
     });
   });
 
+  // A star write that no retry can fix would otherwise fail in silence, and
+  // the user would find the stars gone on the next start.
+  const writeFailure = activeStore.takeWriteFailure();
+  if (writeFailure) {
+    ctx.ui.notify(`Could not save stars to ${STORE_FILE}: ${describeError(writeFailure)}`, "error");
+  }
+
   if (!selected) return;
 
   const applied = await pi.setModel(selected);

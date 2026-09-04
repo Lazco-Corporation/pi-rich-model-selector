@@ -24,6 +24,24 @@ const STALE_LOCK_MS = 2000;
 const SAVE_DELAY_MS = 150;
 const SAVE_RETRY_DELAY_MS = 250;
 
+/**
+ * How many times a save may retry. Only a busy lock is worth retrying, and the
+ * lock frees itself after STALE_LOCK_MS, so this covers that wait with room to
+ * spare. A bound matters: without one, a disk that never accepts a write would
+ * retry for as long as pi runs.
+ */
+const MAX_SAVE_RETRIES = 8;
+
+/**
+ * Errors worth a retry. Both mean another process holds the lock right now, so
+ * waiting is likely to help. Anything else, such as a read-only disk or a
+ * permissions fault, would fail the same way every time.
+ */
+function isLockContention(error: unknown): boolean {
+  const code = (error as { code?: string } | undefined)?.code;
+  return code === "ELOCKED" || code === "ECOMPROMISED";
+}
+
 function emptyData(): StoreData {
   return {
     version: CURRENT_VERSION,
@@ -120,6 +138,10 @@ export class StarStore {
   private readonly modifiedFields = new Set<MergeableField>();
   /** The revision this copy came from. Undefined when the file was missing. */
   private revision: string | undefined;
+  /** Retries left for the change now waiting. */
+  private retriesLeft = MAX_SAVE_RETRIES;
+  /** Set when a write failed for a reason no retry can fix. */
+  private writeFailure: unknown;
 
   constructor(private readonly filePath: string) {
     this.load();
@@ -231,22 +253,44 @@ export class StarStore {
 
   private scheduleSave(field: MergeableField): void {
     this.modifiedFields.add(field);
+    // A fresh change deserves a fresh set of retries, even if an earlier one
+    // used them all up.
+    this.retriesLeft = MAX_SAVE_RETRIES;
     this.armSaveTimer(SAVE_DELAY_MS);
   }
 
   private armSaveTimer(delayMs: number): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       this.saveTimer = undefined;
       try {
         this.writeNow();
-      } catch {
-        // A failed write must never break the picker. Another process may just
-        // hold the lock, so wait and try again rather than drop the change.
-        // writeNow keeps modifiedFields on failure, so the retry writes it all.
-        this.armSaveTimer(SAVE_RETRY_DELAY_MS);
+      } catch (error) {
+        // A failed write must never break the picker. A busy lock frees itself,
+        // so waiting helps. A broken disk does not, and retrying it would spin
+        // for as long as pi runs. writeNow keeps modifiedFields either way, so
+        // the change is still in memory and the next change writes it too.
+        if (isLockContention(error) && this.retriesLeft > 0) {
+          this.retriesLeft -= 1;
+          this.armSaveTimer(SAVE_RETRY_DELAY_MS);
+          return;
+        }
+        this.writeFailure = error;
       }
     }, delayMs);
+    // A pending retry must never hold pi open on the way out.
+    timer.unref?.();
+    this.saveTimer = timer;
+  }
+
+  /**
+   * The error from the last write that could not be retried away, if any.
+   * Reading it clears it, so one failure is reported once.
+   */
+  takeWriteFailure(): unknown {
+    const failure = this.writeFailure;
+    this.writeFailure = undefined;
+    return failure;
   }
 
   /**
@@ -266,11 +310,16 @@ export class StarStore {
     if (this.modifiedFields.size === 0) return true;
     try {
       this.writeNow();
-    } catch {
+    } catch (error) {
       // writeNow keeps modifiedFields on failure. Clearing the timer above
-      // would leave nothing to write it, so arm a retry. Without this a
-      // failed flush parks the change until the user happens to act again.
-      this.armSaveTimer(SAVE_RETRY_DELAY_MS);
+      // would leave nothing to write it, so arm a retry when one can help.
+      // Without this a failed flush parks the change until the user acts again.
+      if (isLockContention(error) && this.retriesLeft > 0) {
+        this.retriesLeft -= 1;
+        this.armSaveTimer(SAVE_RETRY_DELAY_MS);
+      } else {
+        this.writeFailure = error;
+      }
     }
     return this.modifiedFields.size === 0;
   }
