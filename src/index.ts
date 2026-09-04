@@ -53,11 +53,12 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
     });
   });
 
-  // A star write that no retry can fix would otherwise fail in silence, and
-  // the user would find the stars gone on the next start.
+  // A write that no retry can fix would otherwise fail in silence, and the
+  // user would find the work gone on the next start. The file holds stars and
+  // hidden models together, so a hide can fail with no star in sight.
   const writeFailure = activeStore.takeWriteFailure();
   if (writeFailure) {
-    ctx.ui.notify(`Could not save stars to ${STORE_FILE}: ${describeError(writeFailure)}`, "error");
+    ctx.ui.notify(`Could not save star and hidden state to ${STORE_FILE}: ${describeError(writeFailure)}`, "error");
   }
 
   if (!selected) return;

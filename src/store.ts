@@ -245,6 +245,10 @@ export class StarStore {
       // the whole truth now.
       this.data = merged;
       this.modifiedFields.clear();
+      // An earlier failure is history once a write lands. Keeping it would
+      // report "could not save" after the save worked, which would send the
+      // user to redo work the file already holds.
+      this.writeFailure = undefined;
       // This process wrote the file, so its own write must not look like an
       // outside change to reloadIfChanged.
       this.revision = fileRevision(this.filePath);

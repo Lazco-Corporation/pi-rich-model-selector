@@ -199,7 +199,7 @@ The command menu follows `hideBuiltinModelCommand` on the next keystroke.
 Run `/models hide` in one session, and the other session drops `/model` from
 the menu without a restart and without opening the picker.
 
-Two limits are left, and neither one touches `Ctrl+S` or `Ctrl+E`.
+Three limits are left.
 
 First, the rest of the picker shows what it read when it opened.
 The model list, the star order on screen, and the `·default` mark do not follow
@@ -212,7 +212,14 @@ So a model starred by another session, after your picker opened, is dropped when
 you reorder.
 Reordering against a list that moves under your cursor would be worse, so the
 order keys keep the list you can see.
-Star and hide keys do not work this way: each one reads the file first.
+
+Third, two sessions that star or hide at almost the same moment keep the later
+write only.
+`Ctrl+S` and `Ctrl+E` read the file first, which makes this window small, but
+the write that follows holds the whole list.
+A star from another session that lands inside that window is dropped.
+The window is about a sixth of a second, from your key to the write.
+Open the picker again to see what the file holds.
 
 ## Make Ctrl+P follow your star order
 
