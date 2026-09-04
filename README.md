@@ -165,7 +165,6 @@ The file is `~/.pi/agent/rich-model-selector.json`.
   "version": 1,
   "starred": ["<provider>/<model-id>"],
   "hidden": ["<provider>/<another-model-id>"],
-  "syncEnabledModels": false,
   "hideBuiltinModelCommand": false
 }
 ```
@@ -174,6 +173,53 @@ The `starred` list is in your chosen order.
 The `hidden` list has no order.
 
 If a model leaves your catalog, the picker drops it from both lists.
+
+## Editing the files while pi runs
+
+You can edit `settings.json` or `rich-model-selector.json` by hand at any time.
+You can also run two pi sessions at once.
+The picker reads both files every time it opens, so it shows your edit.
+
+A write keeps the fields it does not own:
+
+- Pi owns `settings.json`, so the picker writes it through pi.
+  Pi takes a file lock, re-reads the file, and changes only its own fields.
+- The picker writes the star file the same way.
+  It takes a lock, re-reads the file, then applies only the fields you changed.
+
+So a star set in one session and a hidden model set in another both stay.
+
+A star and a hide are one choice, because a star clears a hide and a hide
+clears a star.
+So the picker reads the file again the moment you press `Ctrl+S` or `Ctrl+E`.
+Your key then wins over what another session did before it, and the model
+never ends up starred and hidden at once.
+
+The command menu follows `hideBuiltinModelCommand` on the next keystroke.
+Run `/models hide` in one session, and the other session drops `/model` from
+the menu without a restart and without opening the picker.
+
+Three limits are left.
+
+First, the rest of the picker shows what it read when it opened.
+The model list, the star order on screen, and the `·default` mark do not follow
+an outside edit while the picker stays open.
+Close the picker and open it again to see that edit.
+
+Second, `Ctrl+Up` and `Ctrl+Down` write the star order the picker read when it
+opened.
+So a model starred by another session, after your picker opened, is dropped when
+you reorder.
+Reordering against a list that moves under your cursor would be worse, so the
+order keys keep the list you can see.
+
+Third, two sessions that star or hide at almost the same moment keep the later
+write only.
+`Ctrl+S` and `Ctrl+E` read the file first, which makes this window small, but
+the write that follows holds the whole list.
+A star from another session that lands inside that window is dropped.
+The window is about a sixth of a second, from your key to the write.
+Open the picker again to see what the file holds.
 
 ## Make Ctrl+P follow your star order
 
@@ -199,7 +245,7 @@ Only your starred models stay available after a sync.
 | `picker.ts` | the picker component |
 | `window.ts` | the window frame that draws the border, the title, and the hint |
 | `model-facts.ts` | turns a model into the text you see |
-| `store.ts` | reads and writes the star file |
+| `store.ts` | reads and writes the star file and the pi settings file |
 
 All files sit under `src/`.
 
