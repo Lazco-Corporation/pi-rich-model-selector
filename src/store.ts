@@ -17,6 +17,13 @@ type MergeableField = "starred" | "hidden" | "hideBuiltinModelCommand";
 
 const CURRENT_VERSION = 1;
 
+/** How long before a lock left by a dead process may be taken over. */
+const STALE_LOCK_MS = 2000;
+
+/** Debounce for a normal save, and the wait before a failed save retries. */
+const SAVE_DELAY_MS = 150;
+const SAVE_RETRY_DELAY_MS = 250;
+
 function emptyData(): StoreData {
   return {
     version: CURRENT_VERSION,
@@ -61,7 +68,12 @@ function withFileLock<T>(path: string, operation: () => T): T {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       // realpath: false, because the file may not exist yet.
-      release = lockfile.lockSync(path, { realpath: false });
+      //
+      // stale: a holder that crashed leaves its lock behind. The library's
+      // default frees it after 10 seconds, which is longer than a session that
+      // is quitting will wait. A star write takes microseconds, so 2 seconds is
+      // still far longer than any live holder needs.
+      release = lockfile.lockSync(path, { realpath: false, stale: STALE_LOCK_MS });
       break;
     } catch (error) {
       const code = (error as { code?: string }).code;
@@ -181,11 +193,18 @@ export class StarStore {
         if (field === "hideBuiltinModelCommand") merged.hideBuiltinModelCommand = this.data.hideBuiltinModelCommand;
         else merged[field] = [...this.data[field]];
       }
-      // A star and a hide are one choice held in two lists, so a merge of one
-      // list against the other list from disk can put a model in both. The
-      // picker would then show it starred and hidden at once. A star wins,
-      // which is the rule toggleStar and toggleHidden already follow.
-      merged.hidden = merged.hidden.filter((key) => !merged.starred.includes(key));
+      // The toggles decide star against hide on fresh data, so the common path
+      // never reaches here in conflict. Three cases still can: a change of ours
+      // waiting while another session writes the opposite choice, and a file
+      // edited by hand to hold both. A model in both lists would show as
+      // starred and hidden at once, so one list must give way.
+      //
+      // The list this process did not just change is the one that gives way,
+      // because the other list holds what the user asked for most recently.
+      const ourStarred = this.modifiedFields.has("starred");
+      const ourHidden = this.modifiedFields.has("hidden");
+      if (ourHidden && !ourStarred) merged.starred = merged.starred.filter((key) => !merged.hidden.includes(key));
+      else merged.hidden = merged.hidden.filter((key) => !merged.starred.includes(key));
 
       const temporaryPath = `${this.filePath}.tmp-${process.pid}`;
       try {
@@ -212,15 +231,22 @@ export class StarStore {
 
   private scheduleSave(field: MergeableField): void {
     this.modifiedFields.add(field);
+    this.armSaveTimer(SAVE_DELAY_MS);
+  }
+
+  private armSaveTimer(delayMs: number): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined;
       try {
         this.writeNow();
       } catch {
-        // A failed star write must never break the picker.
+        // A failed write must never break the picker. Another process may just
+        // hold the lock, so wait and try again rather than drop the change.
+        // writeNow keeps modifiedFields on failure, so the retry writes it all.
+        this.armSaveTimer(SAVE_RETRY_DELAY_MS);
       }
-    }, 150);
+    }, delayMs);
   }
 
   /**
@@ -241,7 +267,10 @@ export class StarStore {
     try {
       this.writeNow();
     } catch {
-      // Same reason as scheduleSave. writeNow keeps modifiedFields on failure.
+      // writeNow keeps modifiedFields on failure. Clearing the timer above
+      // would leave nothing to write it, so arm a retry. Without this a
+      // failed flush parks the change until the user happens to act again.
+      this.armSaveTimer(SAVE_RETRY_DELAY_MS);
     }
     return this.modifiedFields.size === 0;
   }
@@ -260,6 +289,10 @@ export class StarStore {
   }
 
   toggleStar(key: string): boolean {
+    // A star clears a hide, so this decision spans both lists. Another session
+    // may have hidden this model since the picker opened. Deciding against the
+    // copy in memory would drop that hide, or drop this star.
+    this.reloadIfChanged();
     const index = this.data.starred.indexOf(key);
     if (index >= 0) {
       this.data.starred.splice(index, 1);
@@ -283,6 +316,8 @@ export class StarStore {
 
   /** Returns the new hidden state. Hiding a starred model also drops the star. */
   toggleHidden(key: string): boolean {
+    // Same reason as toggleStar: a hide clears a star.
+    this.reloadIfChanged();
     if (this.unhide(key)) {
       this.scheduleSave("hidden");
       return false;

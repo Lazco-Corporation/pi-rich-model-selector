@@ -189,6 +189,12 @@ A write keeps the fields it does not own:
 
 So a star set in one session and a hidden model set in another both stay.
 
+A star and a hide are one choice, because a star clears a hide and a hide
+clears a star.
+So the picker reads the file again the moment you press `Ctrl+S` or `Ctrl+E`.
+Your key then wins over what another session did before it, and the model
+never ends up starred and hidden at once.
+
 The command menu follows `hideBuiltinModelCommand` on the next keystroke.
 Run `/models hide` in one session, and the other session drops `/model` from
 the menu without a restart and without opening the picker.

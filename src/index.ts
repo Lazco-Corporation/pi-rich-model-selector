@@ -198,6 +198,13 @@ export default function (pi: ExtensionAPI) {
     }));
   });
 
+  // A star write is debounced, and a failed write waits to retry. Pi quitting
+  // would drop a change still waiting in either case. The picker closing is
+  // not enough, because /models hide writes without opening the picker.
+  pi.on("session_shutdown", () => {
+    store?.flush();
+  });
+
   pi.registerCommand("models", {
     description: "Pick a model with full model facts, stars, and star order",
     handler: async (args, ctx) => {
