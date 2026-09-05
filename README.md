@@ -6,7 +6,7 @@ The picker in pi shows the model id, the provider, and the name.
 This extension also shows the context size, the price, the thinking levels, and the key state.
 You can star a model, hide a model, and sort your starred models.
 
-<video src="https://github.com/user-attachments/assets/5fd65f9e-ef06-4577-9c7e-793d5c7d6f58" controls></video>
+<video src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/Demo.mp4" controls></video>
 
 ## Table of contents
 
