@@ -9,6 +9,8 @@ order the user sets.
 |---|---|
 | `bun install` | Install the dependencies. |
 | `npm run check` | Type-check. This is the only gate. There is no test runner. |
+| `npm run verify` | Drive the real picker through every list action and check the result. |
+| `npm run bench` | Time the picker's hot paths over the full built-in catalog. |
 | `npm run release -- <bump>` | Cut a release. See **Release** below. |
 
 The package ships TypeScript source, so there is no build step.
@@ -27,6 +29,10 @@ All source sits under `src/`.
 
 `scripts/release.sh` cuts a release.
 `.github/workflows/release-npm.yml` publishes one.
+`scripts/verify/` holds scripts that drive the exported picker and check what
+it shows. `scripts/bench-picker.ts` and `scripts/bench-open.ts` time it.
+`scripts/run-node-bench.mjs` runs a TypeScript script under node through
+jiti, the loader pi uses, so a timing taken there is the timing the user gets.
 
 ## Dependencies
 
@@ -95,7 +101,33 @@ call it done:
 2. Drive the real exported code, not a copy of its logic.
 3. For anything about two sessions, run two real processes at once.
 4. Run the same case several times. A race that passes once proves nothing.
-5. Run `npm run check`.
+5. Run `npm run check` and `npm run verify`.
+
+A scenario worth keeping goes in `scripts/verify/`. Each script there prints
+one line per check and exits non-zero on a failure.
+
+## Performance
+
+The picker holds every model pi knows, which is over a thousand rows. The
+search box, the cursor, and the tab key each redraw the list, so a pass over
+every row on each key press is what makes the picker feel slow.
+
+Rules that keep it fast:
+
+- Sort once, and only when the order can change: a star, a hide, a reorder,
+  the startup default, or a catalog refresh. A key press in the search box
+  never re-sorts. Set `orderDirty` after any store call that can write.
+- The sort comparator reads strings and a map only. Never call into a model
+  object or the store from inside it. It runs tens of thousands of times.
+- Format a row cell once, at load, and keep it on the `ModelItem`. A level
+  cell needs pi to list the levels a model accepts, so refresh only the row
+  the arrow key changed.
+- Measure column widths once per filtered list, not once per redraw.
+- Cancel the catalog refresh when the picker closes, and bound it. Pi's own
+  picker does the same.
+
+Run `npm run bench` before and after a change to a hot path, and keep both
+numbers in the commit body.
 
 ## Commits
 

@@ -55,6 +55,11 @@ To open the picker with a filter, add a word:
 /model opus
 ```
 
+The picker opens at once on the models pi already knows.
+It then asks each provider for a fresh catalog in the background, and the list updates when the answer comes.
+That refresh stops when you close the picker, and it gives up after 15 seconds.
+Either way you keep the models pi already had.
+
 ## Keys
 
 | Key | Action |

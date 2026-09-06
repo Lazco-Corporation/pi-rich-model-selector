@@ -53,6 +53,8 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "bench": "node scripts/run-node-bench.mjs \"$PWD/scripts/bench-picker.ts\" && node scripts/run-node-bench.mjs \"$PWD/scripts/bench-open.ts\"",
+    "verify": "node scripts/run-node-bench.mjs \"$PWD/scripts/verify/picker-order.ts\" && node scripts/run-node-bench.mjs \"$PWD/scripts/verify/picker-refresh.ts\"",
     "release": "bash scripts/release.sh"
   }
 }

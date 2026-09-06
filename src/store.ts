@@ -340,11 +340,6 @@ export class StarStore {
     return this.data.starred.includes(key);
   }
 
-  /** Returns the star position, or -1. Used to sort the list. */
-  starRank(key: string): number {
-    return this.data.starred.indexOf(key);
-  }
-
   toggleStar(key: string): boolean {
     // A star clears a hide, so this decision spans both lists. Another session
     // may have hidden this model since the picker opened. Deciding against the
@@ -516,12 +511,6 @@ export async function writeEnabledModels(cwd: string, agentDir: string, patterns
   });
 }
 
-/** The global thinking level, used by every model without an entry of its own. */
-export function readDefaultThinkingLevel(cwd: string, agentDir: string): ModelThinkingLevel {
-  const level = SettingsManager.create(cwd, agentDir).getDefaultThinkingLevel();
-  return level ?? PI_DEFAULT_THINKING_LEVEL;
-}
-
 /**
  * Per-model thinking levels, held in settings.json under `modelThinkingLevels`.
  *
@@ -536,6 +525,12 @@ export function readDefaultThinkingLevel(cwd: string, agentDir: string): ModelTh
 export class ModelThinkingStore {
   /** Levels as last read from the file, plus every change this process made. */
   private levels = new Map<string, ModelThinkingLevel>();
+  /**
+   * The global level, read with the per-model levels. Both live in the same
+   * file, and a `SettingsManager` reads and parses that file on creation, so
+   * one read serves both instead of two.
+   */
+  private defaultLevel: ModelThinkingLevel = PI_DEFAULT_THINKING_LEVEL;
   /** Models this process changed and has not written yet. */
   private readonly pendingKeys = new Set<string>();
   private saveTimer: NodeJS.Timeout | undefined;
@@ -552,7 +547,9 @@ export class ModelThinkingStore {
   }
 
   private load(): void {
-    const saved = SettingsManager.create(this.cwd, this.agentDir).getAllModelThinkingLevels();
+    const settings = SettingsManager.create(this.cwd, this.agentDir);
+    this.defaultLevel = settings.getDefaultThinkingLevel() ?? PI_DEFAULT_THINKING_LEVEL;
+    const saved = settings.getAllModelThinkingLevels();
     const next = new Map<string, ModelThinkingLevel>(Object.entries(saved));
     // A change of ours that has not landed yet must survive a reload, or the
     // picker would show the old level right after the user pressed a key.
@@ -567,6 +564,11 @@ export class ModelThinkingStore {
   /** Re-read the file, keeping changes this process has not written yet. */
   reload(): void {
     this.load();
+  }
+
+  /** The global thinking level, used by every model without an entry of its own. */
+  getDefaultLevel(): ModelThinkingLevel {
+    return this.defaultLevel;
   }
 
   get(key: string): ModelThinkingLevel | undefined {

@@ -1,5 +1,4 @@
 import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { modelsAreEqual } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { Container, fuzzyFilter, Input, matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -18,6 +17,12 @@ import { computeWindowLayout, WindowFrame } from "./window.ts";
 const TWO_PANE_MIN_WIDTH = 100;
 const MAX_VISIBLE_ROWS = 12;
 const SIDE_PANE_WIDTH = 46;
+/**
+ * How long a catalog refresh may run before the picker gives up on it. The
+ * same bound pi's own picker uses. A refresh asks every provider for its
+ * catalog and its auth state, so a slow one would otherwise run for minutes.
+ */
+const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
 
 export interface PickerTheme {
   fg(color: string, text: string): string;
@@ -28,6 +33,28 @@ export interface ModelItem {
   provider: string;
   id: string;
   model: Model<any>;
+  /** Row cells that depend on the model alone, formatted once at load. */
+  idWidth: number;
+  contextText: string;
+  priceText: string;
+  /** What the search box matches against. Built once, not per key press. */
+  searchText: string;
+  /**
+   * The level column, as text and as columns. Set at load, and again for the
+   * one row an arrow key changes. Working it out means asking pi which levels
+   * the model accepts, and that is too slow to repeat for a thousand rows on
+   * every key press.
+   */
+  thinkingText: string;
+  thinkingWidth: number;
+}
+
+/** Column widths for one filtered list. Cached, because they cost a pass over every row. */
+interface ColumnWidths {
+  id: number;
+  context: number;
+  price: number;
+  thinking: number;
 }
 
 export interface PickerOptions {
@@ -102,7 +129,28 @@ export class RichModelPicker extends Container implements Focusable {
   private readonly scopeText: Text;
 
   private allItems: ModelItem[] = [];
+  /**
+   * Every model in the order the list shows them. Sorting a thousand rows is
+   * the single biggest cost in the picker, and a key press in the search box
+   * cannot change the order, so the sort runs only when the order can change.
+   *
+   * Every star, hide, and reorder goes through the store, and the store may
+   * also pull in another session's change on the way. So any store call that
+   * can write sets the flag, rather than the picker guessing which field
+   * moved. The startup default and the catalog set it too.
+   */
+  private sortedItems: ModelItem[] = [];
+  private orderDirty = true;
   private filtered: ModelItem[] = [];
+  /** The list the cached widths were measured on. Identity, not content. */
+  private widthsFor: ModelItem[] | undefined;
+  private widths: ColumnWidths | undefined;
+  /**
+   * Bumped on every thinking level change. The thinking column width depends
+   * on the level text, so a cached width is only valid for one revision.
+   */
+  private thinkingRevision = 0;
+  private widthsThinkingRevision = -1;
   private selectedIndex = 0;
   private scope: Scope = "all";
   private status = "";
@@ -111,6 +159,10 @@ export class RichModelPicker extends Container implements Focusable {
   private closed = false;
   /** True while a startup-default write is on its way to settings.json. */
   private defaultWriteInFlight = false;
+  /** Cancels the catalog refresh when the picker closes before it finishes. */
+  private readonly refreshAbort = new AbortController();
+  /** The key of the model in use, so the sort compares strings, not models. */
+  private readonly currentKey: string | undefined;
 
   private _focused = false;
   get focused(): boolean {
@@ -124,6 +176,9 @@ export class RichModelPicker extends Container implements Focusable {
   constructor(private readonly options: PickerOptions) {
     super();
     const { theme } = options;
+    this.currentKey = options.currentModel
+      ? modelKey(options.currentModel.provider, options.currentModel.id)
+      : undefined;
 
     this.scopeText = new Text("", 0, 0);
     this.statusText = new Text("", 0, 0);
@@ -192,16 +247,34 @@ export class RichModelPicker extends Container implements Focusable {
       provider: model.provider,
       id: model.id,
       model,
+      idWidth: visibleWidth(model.id),
+      contextText: formatTokens(model.contextWindow ?? 0),
+      priceText: formatPricePair(model),
+      searchText: `${model.id} ${model.provider} ${model.name ?? ""}`,
+      thinkingText: "",
+      thinkingWidth: 0,
     }));
+    this.orderDirty = true;
     const availableKeys = new Set(this.allItems.map((item) => item.key));
     this.options.store.prune(availableKeys);
     this.options.thinkingStore.prune(availableKeys);
+    // After the prune, so a level for a model that is gone cannot leak in.
+    for (const item of this.allItems) this.setThinkingCell(item);
   }
 
-  /** Pull fresh model catalogs, then redraw. Never throws into the UI. */
+  /**
+   * Pull fresh model catalogs, then redraw. Never throws into the UI.
+   *
+   * The refresh stops when the picker closes, and after a bound. Without
+   * either, a user who opens and closes the picker leaves a refresh running
+   * behind it, and that refresh talks to every provider.
+   */
   private async refreshCatalog(): Promise<void> {
+    const timeout = setTimeout(() => this.refreshAbort.abort(), CATALOG_REFRESH_TIMEOUT_MS);
+    // A pending timeout must never hold pi open on the way out.
+    timeout.unref?.();
     try {
-      await this.options.registry.refresh();
+      await this.options.registry.refresh({ signal: this.refreshAbort.signal });
       if (this.closed) return;
       const selectedKey = this.filtered[this.selectedIndex]?.key;
       this.loadModels();
@@ -216,11 +289,13 @@ export class RichModelPicker extends Container implements Focusable {
       this.options.tui.requestRender();
     } catch {
       // Cached models are already on screen, so a refresh failure is not fatal.
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
   private isCurrent(item: ModelItem): boolean {
-    return modelsAreEqual(this.options.currentModel, item.model);
+    return item.key === this.currentKey;
   }
 
   /** The level this model would run at, and whether the user pinned it. */
@@ -232,19 +307,28 @@ export class RichModelPicker extends Container implements Focusable {
     );
   }
 
-  /** Plain text of the level column. Used to size the column and to render it. */
-  private thinkingCellText(item: ModelItem): string {
-    if (!item.model.reasoning) return "-";
+  /**
+   * Refresh the level cell of one row. The column is sized from these cells,
+   * so the text and its width are kept together.
+   */
+  private setThinkingCell(item: ModelItem): void {
+    if (!item.model.reasoning) {
+      item.thinkingText = "-";
+      item.thinkingWidth = 1;
+      return;
+    }
     const { level, pinned } = this.levelOf(item);
-    return pinned ? level : `${level} ·`;
+    item.thinkingText = pinned ? level : `${level} ·`;
+    // The level names are plain ASCII, so the width is the length. The dot is
+    // one column wide, plus the space before it.
+    item.thinkingWidth = level.length + (pinned ? 0 : 2);
   }
 
   /** The level column, colored. A dot means the level follows the global default. */
   private renderLevelCell(item: ModelItem, width: number): string {
     const { theme } = this.options;
-    const text = this.thinkingCellText(item);
-    const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
-    if (!item.model.reasoning) return theme.fg("dim", text) + padding;
+    const padding = " ".repeat(Math.max(0, width - item.thinkingWidth));
+    if (!item.model.reasoning) return theme.fg("dim", item.thinkingText) + padding;
     const { level, pinned } = this.levelOf(item);
     const colored = this.safeColor(thinkingLevelColor(level), level);
     return `${colored}${pinned ? "" : theme.fg("dim", " ·")}${padding}`;
@@ -283,6 +367,8 @@ export class RichModelPicker extends Container implements Focusable {
       this.options.thinkingStore.set(item.key, next);
       this.setStatus(`${item.id} thinking level is ${next}.`, "success");
     }
+    this.setThinkingCell(item);
+    this.thinkingRevision += 1;
     this.updateList();
   }
 
@@ -291,44 +377,90 @@ export class RichModelPicker extends Container implements Focusable {
     return fallback?.provider === item.provider && fallback.id === item.id;
   }
 
-  /** Starred models first in star order, then current, default, provider, id. */
+  /**
+   * Starred models first in star order, then current, default, provider, id.
+   *
+   * The comparator runs tens of thousands of times for a thousand rows, so it
+   * reads only strings and a map. Star rank is a map, not an indexOf per call,
+   * and the current and default models are keys, not model objects.
+   */
   private sortItems(items: ModelItem[]): ModelItem[] {
-    const store = this.options.store;
+    const starRank = new Map(this.options.store.getStarred().map((key, index) => [key, index]));
+    const currentKey = this.currentKey;
+    const fallback = this.options.defaultModel;
+    const defaultKey = fallback ? modelKey(fallback.provider, fallback.id) : undefined;
     return [...items].sort((left, right) => {
-      const leftRank = store.starRank(left.key);
-      const rightRank = store.starRank(right.key);
-      if (leftRank >= 0 || rightRank >= 0) {
-        if (leftRank < 0) return 1;
-        if (rightRank < 0) return -1;
+      const leftRank = starRank.get(left.key);
+      const rightRank = starRank.get(right.key);
+      if (leftRank !== undefined || rightRank !== undefined) {
+        if (leftRank === undefined) return 1;
+        if (rightRank === undefined) return -1;
         return leftRank - rightRank;
       }
-      if (this.isCurrent(left) !== this.isCurrent(right)) return this.isCurrent(left) ? -1 : 1;
-      if (this.isDefault(left) !== this.isDefault(right)) return this.isDefault(left) ? -1 : 1;
+      const leftCurrent = left.key === currentKey;
+      if (leftCurrent !== (right.key === currentKey)) return leftCurrent ? -1 : 1;
+      const leftDefault = left.key === defaultKey;
+      if (leftDefault !== (right.key === defaultKey)) return leftDefault ? -1 : 1;
       const byProvider = left.provider.localeCompare(right.provider);
       return byProvider !== 0 ? byProvider : left.id.localeCompare(right.id);
     });
   }
 
   private scopeItems(): ModelItem[] {
+    if (this.orderDirty) {
+      this.sortedItems = this.sortItems(this.allItems);
+      this.orderDirty = false;
+    }
     const store = this.options.store;
-    let pool: ModelItem[];
-    if (this.scope === "starred") pool = this.allItems.filter((item) => store.isStarred(item.key));
-    else if (this.scope === "hidden") pool = this.allItems.filter((item) => store.isHidden(item.key));
+    // A Set per call. The hidden list is short, but a thousand includes() calls
+    // on it still add up, and this runs on every key press in the search box.
+    if (this.scope === "starred") {
+      const starred = new Set(store.getStarred());
+      return this.sortedItems.filter((item) => starred.has(item.key));
+    }
+    const hidden = new Set(store.getHidden());
+    if (this.scope === "hidden") return this.sortedItems.filter((item) => hidden.has(item.key));
     // The "all" view is the working list, so hidden models stay out of it.
-    else pool = this.allItems.filter((item) => !store.isHidden(item.key));
-    return this.sortItems(pool);
+    return this.sortedItems.filter((item) => !hidden.has(item.key));
   }
 
   private applyFilter(): void {
     const query = this.searchInput.getValue().trim();
     const pool = this.scopeItems();
-    this.filtered = query
-      ? fuzzyFilter(pool, query, (item) => `${item.id} ${item.provider} ${item.model.name ?? ""}`)
-      : pool;
+    this.filtered = query ? fuzzyFilter(pool, query, (item) => item.searchText) : pool;
     if (query) this.selectedIndex = 0;
     else this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filtered.length - 1));
     this.updateScopeLine();
     this.updateList();
+  }
+
+  /**
+   * Column widths come from the whole list, not the visible slice. Slice widths
+   * would change while the user scrolls, and the columns would jump sideways.
+   *
+   * Measured once per filtered list. A cursor move keeps the same list, so it
+   * must not pay for a pass over every row again.
+   */
+  private columnWidths(): ColumnWidths {
+    if (this.widths && this.widthsFor === this.filtered && this.widthsThinkingRevision === this.thinkingRevision) {
+      return this.widths;
+    }
+    let id = 0;
+    let context = 0;
+    let price = 0;
+    let thinking = 0;
+    for (const item of this.filtered) {
+      if (item.idWidth > id) id = item.idWidth;
+      if (item.contextText.length > context) context = item.contextText.length;
+      if (item.priceText.length > price) price = item.priceText.length;
+      // The dot that marks an inherited level sits inside this width, so a
+      // pinned row and an inherited row start at the same column.
+      if (item.thinkingWidth > thinking) thinking = item.thinkingWidth;
+    }
+    this.widths = { id: Math.min(38, id), context, price, thinking };
+    this.widthsFor = this.filtered;
+    this.widthsThinkingRevision = this.thinkingRevision;
+    return this.widths;
   }
 
   private updateScopeLine(): void {
@@ -349,7 +481,7 @@ export class RichModelPicker extends Container implements Focusable {
    */
   private updateList(): void {
     this.listContainer.clear();
-    const { theme, store } = this.options;
+    const { theme, store, registry } = this.options;
 
     if (this.filtered.length === 0) {
       let message = "No model matches the search.";
@@ -367,19 +499,7 @@ export class RichModelPicker extends Container implements Focusable {
     const half = Math.floor(MAX_VISIBLE_ROWS / 2);
     const start = Math.max(0, Math.min(this.selectedIndex - half, total - MAX_VISIBLE_ROWS));
     const end = Math.min(start + MAX_VISIBLE_ROWS, total);
-
-    // Widths come from the whole list, not the visible slice. Slice widths would
-    // change while the user scrolls, and the columns would jump sideways.
-    const idWidth = Math.min(38, Math.max(...this.filtered.map((item) => visibleWidth(item.id))));
-    const contextWidth = Math.max(
-      ...this.filtered.map((item) => visibleWidth(formatTokens(item.model.contextWindow ?? 0))),
-    );
-    const priceWidth = Math.max(...this.filtered.map((item) => visibleWidth(formatPricePair(item.model))));
-    // The dot that marks an inherited level sits inside this width, so a pinned
-    // row and an inherited row start at the same column.
-    const thinkingWidth = Math.max(
-      ...this.filtered.map((item) => visibleWidth(this.thinkingCellText(item))),
-    );
+    const widths = this.columnWidths();
 
     for (let index = start; index < end; index++) {
       const item = this.filtered[index];
@@ -390,19 +510,19 @@ export class RichModelPicker extends Container implements Focusable {
       const cursor = isSelected ? theme.fg("accent", "→") : " ";
       let star = starred ? theme.fg("warning", "★") : theme.fg("dim", "·");
       if (store.isHidden(item.key)) star = theme.fg("dim", "✗");
-      const id = padPlain(item.id, idWidth);
-      const context = padPlain(formatTokens(item.model.contextWindow ?? 0), contextWidth);
-      const price = padPlain(formatPricePair(item.model), priceWidth);
+      const id = padPlain(item.id, widths.id);
+      const context = padPlain(item.contextText, widths.context);
+      const price = padPlain(item.priceText, widths.price);
 
       const marks =
         (this.isCurrent(item) ? theme.fg("success", " ✓") : "") +
         (this.isDefault(item) ? theme.fg("muted", " ·default") : "") +
-        (this.options.registry.hasConfiguredAuth(item.model) ? "" : theme.fg("error", " ·no key"));
+        (registry.hasConfiguredAuth(item.model) ? "" : theme.fg("error", " ·no key"));
 
       const body =
         `${isSelected ? theme.fg("accent", id) : id} ` +
         `${theme.fg("muted", context)} ${theme.fg("muted", price)}` +
-        ` ${this.renderLevelCell(item, thinkingWidth)}${marks}`;
+        ` ${this.renderLevelCell(item, widths.thinking)}${marks}`;
 
       this.listContainer.addChild(new Text(`${cursor} ${star} ${body}`, 0, 0));
     }
@@ -513,6 +633,7 @@ export class RichModelPicker extends Container implements Focusable {
     );
     // The sort puts the default model near the front, so the write moves the
     // row. Re-filter and re-find the row, like toggleStar does.
+    this.orderDirty = true;
     this.applyFilter();
     const index = this.filtered.findIndex((entry) => entry.key === item.key);
     if (index >= 0) this.selectedIndex = index;
@@ -610,6 +731,7 @@ export class RichModelPicker extends Container implements Focusable {
     const item = this.filtered[this.selectedIndex];
     if (!item) return;
     const nowStarred = this.options.store.toggleStar(item.key);
+    this.orderDirty = true;
     this.setStatus(nowStarred ? `Starred ${item.id}` : `Removed star from ${item.id}`, "success");
     this.applyFilter();
     const index = this.filtered.findIndex((entry) => entry.key === item.key);
@@ -627,6 +749,7 @@ export class RichModelPicker extends Container implements Focusable {
     }
     const wasStarred = this.options.store.isStarred(item.key);
     const nowHidden = this.options.store.toggleHidden(item.key);
+    this.orderDirty = true;
     const note = nowHidden && wasStarred ? " Star removed." : "";
     this.setStatus(nowHidden ? `Hid ${item.id}.${note}` : `Restored ${item.id}`, "success");
     this.applyFilter();
@@ -649,6 +772,7 @@ export class RichModelPicker extends Container implements Focusable {
       return;
     }
     if (!this.options.store.move(item.key, direction)) return;
+    this.orderDirty = true;
     this.setStatus("", "muted");
     this.applyFilter();
     const index = this.filtered.findIndex((entry) => entry.key === item.key);
@@ -670,6 +794,9 @@ export class RichModelPicker extends Container implements Focusable {
   private close(): void {
     if (this.closed) return;
     this.closed = true;
+    // A refresh still running would go on talking to every provider after
+    // the picker is gone, and then redraw a picker nobody can see.
+    this.refreshAbort.abort();
     this.options.store.flush();
   }
 
