@@ -1,7 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
+
+/** Pi's own fallback when settings.json names no default thinking level. */
+const PI_DEFAULT_THINKING_LEVEL: ModelThinkingLevel = "medium";
 
 export interface StoreData {
   version: number;
@@ -510,4 +514,172 @@ export async function writeEnabledModels(cwd: string, agentDir: string, patterns
   await updateSettings(cwd, agentDir, (settings) => {
     settings.setEnabledModels(patterns.length > 0 ? patterns : undefined);
   });
+}
+
+/** The global thinking level, used by every model without an entry of its own. */
+export function readDefaultThinkingLevel(cwd: string, agentDir: string): ModelThinkingLevel {
+  const level = SettingsManager.create(cwd, agentDir).getDefaultThinkingLevel();
+  return level ?? PI_DEFAULT_THINKING_LEVEL;
+}
+
+/**
+ * Per-model thinking levels, held in settings.json under `modelThinkingLevels`.
+ *
+ * Pi reads that field when it switches model, so a level saved here follows the
+ * model instead of the session. Pi owns the file, so every write goes through
+ * `SettingsManager`.
+ *
+ * The arrow keys make this a hot path: a user steps through four levels in a
+ * second, and each step would otherwise be a locked read-modify-write. So a
+ * change waits briefly, and only the last one reaches the disk.
+ */
+export class ModelThinkingStore {
+  /** Levels as last read from the file, plus every change this process made. */
+  private levels = new Map<string, ModelThinkingLevel>();
+  /** Models this process changed and has not written yet. */
+  private readonly pendingKeys = new Set<string>();
+  private saveTimer: NodeJS.Timeout | undefined;
+  private retriesLeft = MAX_SAVE_RETRIES;
+  private writeFailure: unknown;
+  /** A write in flight. A second write must not overlap it on the same field. */
+  private writing: Promise<void> | undefined;
+
+  constructor(
+    private readonly cwd: string,
+    private readonly agentDir: string,
+  ) {
+    this.load();
+  }
+
+  private load(): void {
+    const saved = SettingsManager.create(this.cwd, this.agentDir).getAllModelThinkingLevels();
+    const next = new Map<string, ModelThinkingLevel>(Object.entries(saved));
+    // A change of ours that has not landed yet must survive a reload, or the
+    // picker would show the old level right after the user pressed a key.
+    for (const key of this.pendingKeys) {
+      const pending = this.levels.get(key);
+      if (pending === undefined) next.delete(key);
+      else next.set(key, pending);
+    }
+    this.levels = next;
+  }
+
+  /** Re-read the file, keeping changes this process has not written yet. */
+  reload(): void {
+    this.load();
+  }
+
+  get(key: string): ModelThinkingLevel | undefined {
+    return this.levels.get(key);
+  }
+
+  /** Pin a level to a model. */
+  set(key: string, level: ModelThinkingLevel): void {
+    this.levels.set(key, level);
+    this.markPending(key);
+  }
+
+  /** Drop the pin, so the model follows the global default again. */
+  clear(key: string): void {
+    this.levels.delete(key);
+    this.markPending(key);
+  }
+
+  private markPending(key: string): void {
+    this.pendingKeys.add(key);
+    // A fresh change deserves a fresh set of retries, even if an earlier one
+    // used them all up.
+    this.retriesLeft = MAX_SAVE_RETRIES;
+    this.armSaveTimer(SAVE_DELAY_MS);
+  }
+
+  private armSaveTimer(delayMs: number): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    const timer = setTimeout(() => {
+      this.saveTimer = undefined;
+      void this.writeNow();
+    }, delayMs);
+    // A pending retry must never hold pi open on the way out.
+    timer.unref?.();
+    this.saveTimer = timer;
+  }
+
+  /**
+   * Write the pending models into settings.json.
+   *
+   * Only the models this process touched are written. `SettingsManager` re-reads
+   * the file inside its own lock, so an entry another session added for a
+   * different model survives.
+   */
+  private async writeNow(): Promise<void> {
+    if (this.pendingKeys.size === 0) return;
+    // Serialize against a write already running. Two `SettingsManager`
+    // instances writing the same field would each merge onto its own read.
+    const previous = this.writing;
+    const run = (async () => {
+      await previous?.catch(() => undefined);
+      if (this.pendingKeys.size === 0) return;
+      const writingKeys = [...this.pendingKeys];
+      const snapshot = new Map(writingKeys.map((key) => [key, this.levels.get(key)] as const));
+      try {
+        await updateSettings(this.cwd, this.agentDir, (settings) => {
+          for (const [key, level] of snapshot) {
+            const separator = key.indexOf("/");
+            if (separator < 0) continue;
+            const provider = key.slice(0, separator);
+            const modelId = key.slice(separator + 1);
+            if (level === undefined) settings.removeModelThinkingLevel(provider, modelId);
+            else settings.setModelThinkingLevel(provider, modelId, level);
+          }
+        });
+      } catch (error) {
+        // A retry is only worth it while the change is still the newest one.
+        // Retrying a stale value would undo a key the user pressed since.
+        if (this.retriesLeft > 0) {
+          this.retriesLeft -= 1;
+          this.armSaveTimer(SAVE_RETRY_DELAY_MS);
+        } else {
+          this.writeFailure = error;
+        }
+        return;
+      }
+      // Drop only what this write carried. A key pressed while the write ran
+      // stays pending, so the next write picks it up.
+      for (const key of writingKeys) {
+        if (this.levels.get(key) === snapshot.get(key)) this.pendingKeys.delete(key);
+      }
+      // An earlier failure is history once a write lands. Keeping it would
+      // report "could not save" after the save worked.
+      this.writeFailure = undefined;
+    })();
+    this.writing = run;
+    await run;
+  }
+
+  /** Write any pending change now. Resolves once the file holds it, or failed. */
+  async flush(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = undefined;
+    }
+    await this.writeNow();
+    await this.writing?.catch(() => undefined);
+  }
+
+  /**
+   * The error from the last write that could not be retried away, if any.
+   * Reading it clears it, so one failure is reported once.
+   */
+  takeWriteFailure(): unknown {
+    const failure = this.writeFailure;
+    this.writeFailure = undefined;
+    return failure;
+  }
+
+  /** Drop entries whose model is gone from the catalog. */
+  prune(availableKeys: Set<string>): void {
+    for (const key of [...this.levels.keys()]) {
+      if (!availableKeys.has(key)) this.clear(key);
+    }
+  }
 }

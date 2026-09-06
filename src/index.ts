@@ -3,15 +3,33 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { RichModelPicker } from "./picker.ts";
-import { hasEnabledModels, readDefaultModel, StarStore, writeDefaultModel, writeEnabledModels } from "./store.ts";
+import {
+  hasEnabledModels,
+  ModelThinkingStore,
+  readDefaultModel,
+  readDefaultThinkingLevel,
+  StarStore,
+  writeDefaultModel,
+  writeEnabledModels,
+} from "./store.ts";
 
 const STORE_FILE = "rich-model-selector.json";
 
 let store: StarStore | undefined;
+let thinkingStore: ModelThinkingStore | undefined;
 
 function getStore(): StarStore {
   if (!store) store = new StarStore(join(getAgentDir(), STORE_FILE));
   return store;
+}
+
+/**
+ * Per-model thinking levels live in pi's settings.json, so this store is keyed
+ * to the cwd that names that file.
+ */
+function getThinkingStore(cwd: string): ModelThinkingStore {
+  if (!thinkingStore) thinkingStore = new ModelThinkingStore(cwd, getAgentDir());
+  return thinkingStore;
 }
 
 function describeError(error: unknown): string {
@@ -28,6 +46,8 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
   // another pi session. Read them now, so the picker opens on what is true.
   const activeStore = getStore();
   activeStore.reload();
+  const levels = getThinkingStore(ctx.cwd);
+  levels.reload();
 
   const usage = ctx.getContextUsage();
   const selected = await ctx.ui.custom<Model<any> | undefined>((tui, theme, _keybindings, done) => {
@@ -35,6 +55,8 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
       tui,
       theme,
       store: activeStore,
+      thinkingStore: levels,
+      defaultThinkingLevel: readDefaultThinkingLevel(ctx.cwd, getAgentDir()),
       registry: ctx.modelRegistry,
       currentModel: ctx.model,
       defaultModel: readDefaultModel(ctx.cwd, getAgentDir()),
@@ -61,6 +83,15 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
     ctx.ui.notify(`Could not save star and hidden state to ${STORE_FILE}: ${describeError(writeFailure)}`, "error");
   }
 
+  // The level write is debounced, so the last key press may still be waiting.
+  // Settle it here, while the picker is still the thing the user is thinking
+  // about, instead of letting a failure surface much later.
+  await levels.flush();
+  const levelFailure = levels.takeWriteFailure();
+  if (levelFailure) {
+    ctx.ui.notify(`Could not save thinking levels to settings.json: ${describeError(levelFailure)}`, "error");
+  }
+
   if (!selected) return;
 
   const applied = await pi.setModel(selected);
@@ -68,7 +99,9 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
     ctx.ui.notify(`Could not switch to ${selected.id}. Check the API key with /login.`, "error");
     return;
   }
-  ctx.ui.notify(`Model is now ${selected.id}.`, "info");
+  // pi.setModel applies the model's own thinking level, so report the pair.
+  // A user who just set a level needs to see it took effect.
+  ctx.ui.notify(`Model is now ${selected.id} (thinking: ${pi.getThinkingLevel()}).`, "info");
 }
 
 /**
@@ -209,8 +242,11 @@ export default function (pi: ExtensionAPI) {
   // A star write is debounced, and a failed write waits to retry. Pi quitting
   // would drop a change still waiting in either case. The picker closing is
   // not enough, because /models hide writes without opening the picker.
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", async () => {
     store?.flush();
+    // Awaited: pi waits for this handler, and the settings write is async.
+    // Without the await a level set moments before quitting would be lost.
+    await thinkingStore?.flush();
   });
 
   pi.registerCommand("models", {

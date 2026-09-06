@@ -1,10 +1,17 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { modelsAreEqual } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { Container, fuzzyFilter, Input, matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { buildFacts, formatPricePair, formatTokens } from "./model-facts.ts";
-import { modelKey, type StarStore } from "./store.ts";
+import {
+  buildFacts,
+  effectiveThinkingLevel,
+  formatPricePair,
+  formatTokens,
+  stepThinkingLevel,
+  thinkingLevelColor,
+} from "./model-facts.ts";
+import { type ModelThinkingStore, modelKey, type StarStore } from "./store.ts";
 import { computeWindowLayout, WindowFrame } from "./window.ts";
 
 /** Below this width the fact pane moves under the list instead of beside it. */
@@ -27,6 +34,10 @@ export interface PickerOptions {
   tui: TUI;
   theme: PickerTheme;
   store: StarStore;
+  /** Per-model thinking levels. The left and right keys write through this. */
+  thinkingStore: ModelThinkingStore;
+  /** Thinking level used by any model without an entry of its own. */
+  defaultThinkingLevel: ModelThinkingLevel;
   registry: ModelRegistry;
   currentModel: Model<any> | undefined;
   defaultModel: { provider: string; id: string } | undefined;
@@ -182,7 +193,9 @@ export class RichModelPicker extends Container implements Focusable {
       id: model.id,
       model,
     }));
-    this.options.store.prune(new Set(this.allItems.map((item) => item.key)));
+    const availableKeys = new Set(this.allItems.map((item) => item.key));
+    this.options.store.prune(availableKeys);
+    this.options.thinkingStore.prune(availableKeys);
   }
 
   /** Pull fresh model catalogs, then redraw. Never throws into the UI. */
@@ -208,6 +221,69 @@ export class RichModelPicker extends Container implements Focusable {
 
   private isCurrent(item: ModelItem): boolean {
     return modelsAreEqual(this.options.currentModel, item.model);
+  }
+
+  /** The level this model would run at, and whether the user pinned it. */
+  private levelOf(item: ModelItem): { level: ModelThinkingLevel; pinned: boolean } {
+    return effectiveThinkingLevel(
+      item.model,
+      this.options.thinkingStore.get(item.key),
+      this.options.defaultThinkingLevel,
+    );
+  }
+
+  /** Plain text of the level column. Used to size the column and to render it. */
+  private thinkingCellText(item: ModelItem): string {
+    if (!item.model.reasoning) return "-";
+    const { level, pinned } = this.levelOf(item);
+    return pinned ? level : `${level} ·`;
+  }
+
+  /** The level column, colored. A dot means the level follows the global default. */
+  private renderLevelCell(item: ModelItem, width: number): string {
+    const { theme } = this.options;
+    const text = this.thinkingCellText(item);
+    const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
+    if (!item.model.reasoning) return theme.fg("dim", text) + padding;
+    const { level, pinned } = this.levelOf(item);
+    const colored = this.safeColor(thinkingLevelColor(level), level);
+    return `${colored}${pinned ? "" : theme.fg("dim", " ·")}${padding}`;
+  }
+
+  /**
+   * Move the level of the model under the cursor.
+   *
+   * The level is saved against the model, not the session, so a row far from
+   * the model in use can still be set. Pi applies it when it switches there.
+   */
+  private moveThinkingLevel(direction: -1 | 1): void {
+    const item = this.filtered[this.selectedIndex];
+    if (!item) return;
+    if (!item.model.reasoning) {
+      this.setStatus(`${item.id} does not support thinking.`, "error");
+      return;
+    }
+
+    const { level } = this.levelOf(item);
+    const next = stepThinkingLevel(item.model, level, direction);
+    if (!next) {
+      // Already at an end. Say so, rather than leave the key looking broken.
+      this.setStatus(`${item.id} is at its ${direction > 0 ? "highest" : "lowest"} level (${level}).`, "muted");
+      return;
+    }
+
+    // A pin equal to the global default only repeats it, and would then stop
+    // following a later change to that default. Clearing keeps one meaning for
+    // the dot: this row follows the default.
+    const inherited = effectiveThinkingLevel(item.model, undefined, this.options.defaultThinkingLevel).level;
+    if (next === inherited) {
+      this.options.thinkingStore.clear(item.key);
+      this.setStatus(`${item.id} follows the default thinking level (${next}).`, "success");
+    } else {
+      this.options.thinkingStore.set(item.key, next);
+      this.setStatus(`${item.id} thinking level is ${next}.`, "success");
+    }
+    this.updateList();
   }
 
   private isDefault(item: ModelItem): boolean {
@@ -299,6 +375,11 @@ export class RichModelPicker extends Container implements Focusable {
       ...this.filtered.map((item) => visibleWidth(formatTokens(item.model.contextWindow ?? 0))),
     );
     const priceWidth = Math.max(...this.filtered.map((item) => visibleWidth(formatPricePair(item.model))));
+    // The dot that marks an inherited level sits inside this width, so a pinned
+    // row and an inherited row start at the same column.
+    const thinkingWidth = Math.max(
+      ...this.filtered.map((item) => visibleWidth(this.thinkingCellText(item))),
+    );
 
     for (let index = start; index < end; index++) {
       const item = this.filtered[index];
@@ -321,7 +402,7 @@ export class RichModelPicker extends Container implements Focusable {
       const body =
         `${isSelected ? theme.fg("accent", id) : id} ` +
         `${theme.fg("muted", context)} ${theme.fg("muted", price)}` +
-        `${theme.fg("dim", ` ${item.model.reasoning ? "think" : "     "}`)}${marks}`;
+        ` ${this.renderLevelCell(item, thinkingWidth)}${marks}`;
 
       this.listContainer.addChild(new Text(`${cursor} ${star} ${body}`, 0, 0));
     }
@@ -459,6 +540,7 @@ export class RichModelPicker extends Container implements Focusable {
     if (this.scope === "starred") {
       hints = [
         { long: "Enter pick", short: "↵" },
+        { long: "←/→ thinking", short: "←→" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+↑/↓ reorder", short: "^↑↓" },
         { long: "Ctrl+D default", short: "^D" },
@@ -469,6 +551,7 @@ export class RichModelPicker extends Container implements Focusable {
     } else if (this.scope === "hidden") {
       hints = [
         { long: "Enter pick", short: "↵" },
+        { long: "←/→ thinking", short: "←→" },
         { long: "Ctrl+E restore", short: "^E" },
         { long: "Ctrl+D default", short: "^D" },
         { long: "Tab starred", short: "⇥" },
@@ -477,6 +560,7 @@ export class RichModelPicker extends Container implements Focusable {
     } else {
       hints = [
         { long: "Enter pick", short: "↵" },
+        { long: "←/→ thinking", short: "←→" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
@@ -616,6 +700,16 @@ export class RichModelPicker extends Container implements Focusable {
     }
     if (matchesKey(data, "ctrl+down") || matchesKey(data, "alt+down")) {
       this.reorder(1);
+      return;
+    }
+    // Before the search box sees them: the box keeps Ctrl+B, Ctrl+F, Home,
+    // End and the Alt arrows, so it stays editable without these two.
+    if (matchesKey(data, "left")) {
+      this.moveThinkingLevel(-1);
+      return;
+    }
+    if (matchesKey(data, "right")) {
+      this.moveThinkingLevel(1);
       return;
     }
     if (matchesKey(data, "ctrl+s")) {

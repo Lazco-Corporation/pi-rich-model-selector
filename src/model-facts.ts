@@ -1,6 +1,5 @@
-import type { Model } from "@earendil-works/pi-ai";
-
-const THINKING_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 
 /** Short token count. 1000000 becomes "1.0M", 262144 becomes "262K". */
 export function formatTokens(count: number): string {
@@ -26,14 +25,69 @@ export function formatPricePair(model: Model<any>): string {
   return `${formatPrice(model.cost?.input)}/${formatPrice(model.cost?.output)}`;
 }
 
-/** Thinking levels the model really accepts. A null entry means "not supported". */
-export function supportedThinkingLevels(model: Model<any>): string[] {
-  const map = model.thinkingLevelMap;
-  if (!map) return model.reasoning ? ["provider default"] : [];
-  return THINKING_ORDER.filter((level) => {
-    const value = (map as Record<string, string | null | undefined>)[level];
-    return value !== null && value !== undefined;
-  });
+/**
+ * Thinking levels the model really accepts, in order.
+ *
+ * This asks pi rather than reading `thinkingLevelMap` here, because pi's rule
+ * is not uniform: `xhigh` and `max` must be written out to count, while the
+ * other levels count unless the map sets them to null. A second copy of that
+ * rule would offer levels pi then refuses, and the arrow keys would step onto
+ * a level the model cannot use.
+ */
+export function supportedThinkingLevels(model: Model<any>): ModelThinkingLevel[] {
+  return getSupportedThinkingLevels(model);
+}
+
+/**
+ * The level a model would use, and whether the user pinned it.
+ *
+ * `pinned: false` means the level came from the global default, so the row
+ * follows that default and changes with it. The picker marks that with a dot.
+ */
+export interface EffectiveThinkingLevel {
+  level: ModelThinkingLevel;
+  pinned: boolean;
+}
+
+/**
+ * Work out the level pi would use for a model.
+ *
+ * Mirrors pi's own order on a model switch: a per-model entry wins, otherwise
+ * the global default applies. Either way the answer is clamped, because a
+ * default of `xhigh` means nothing to a model that stops at `high`.
+ */
+export function effectiveThinkingLevel(
+  model: Model<any>,
+  pinnedLevel: ModelThinkingLevel | undefined,
+  globalDefault: ModelThinkingLevel,
+): EffectiveThinkingLevel {
+  if (!model.reasoning) return { level: "off", pinned: false };
+  const requested = pinnedLevel ?? globalDefault;
+  return { level: clampThinkingLevel(model, requested), pinned: pinnedLevel !== undefined };
+}
+
+/**
+ * Step a level along the list the model supports.
+ *
+ * Stops at both ends instead of wrapping. A level is an ordered scale, so a
+ * user holding the right arrow wants the top of it, not a jump back to `off`.
+ * Returns undefined when nothing moves, so the caller can skip a save.
+ */
+export function stepThinkingLevel(
+  model: Model<any>,
+  current: ModelThinkingLevel,
+  direction: -1 | 1,
+): ModelThinkingLevel | undefined {
+  if (!model.reasoning) return undefined;
+  const levels = supportedThinkingLevels(model);
+  const index = levels.indexOf(current);
+  // An unknown current level means the caller is out of step with the model.
+  // Start from the nearest end so the key still does something sensible.
+  const from = index >= 0 ? index : direction > 0 ? -1 : levels.length;
+  const target = from + direction;
+  if (target < 0 || target >= levels.length) return undefined;
+  const next = levels[target];
+  return next === current ? undefined : next;
 }
 
 export function formatHost(baseUrl: string | undefined): string {
@@ -106,7 +160,9 @@ export function buildFacts(input: FactInput): FactRow[] {
     });
   }
 
-  const levels = supportedThinkingLevels(model);
+  // pi answers ["off"] for a model that cannot think, so ask the model itself
+  // rather than reading a one-entry list as a real choice.
+  const levels = model.reasoning ? supportedThinkingLevels(model) : [];
   if (!model.reasoning) {
     rows.push({ label: "Thinking", value: "no" });
   } else if (levels.length === 0) {
