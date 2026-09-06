@@ -17,6 +17,7 @@ You can set the thinking level of each model, star a model, hide a model, and so
 - [What a row shows](#what-a-row-shows)
 - [The three views](#the-three-views)
 - [Set the thinking level of a model](#set-the-thinking-level-of-a-model)
+- [Keys the filter box keeps](#keys-the-filter-box-keeps)
 - [Star and sort your models](#star-and-sort-your-models)
 - [Hide a model you do not use](#hide-a-model-you-do-not-use)
 - [Set the model pi starts with](#set-the-model-pi-starts-with)
@@ -66,13 +67,13 @@ Either way you keep the models pi already had.
 |---|---|
 | Type text | Filter the list |
 | `Up` / `Down` | Move the cursor |
-| `Left` / `Right` | Lower or raise the thinking level of the model |
+| `Tab` | Move the thinking level of the model to the next one |
 | `Ctrl+S` | Star the model, or remove the star |
 | `Ctrl+D` | Make the model the startup model, or clear it |
 | `Ctrl+E` | Hide the model, or show it again |
 | `Ctrl+Up` / `Ctrl+Down` | Move a starred model up or down |
 | `Alt+Up` / `Alt+Down` | Move a starred model up or down (second key) |
-| `Tab` | Change the view |
+| `Shift+Tab` | Change the view |
 | `Enter` | Use the model under the cursor |
 | `Esc` or `Ctrl+C` | Close the picker and change nothing |
 
@@ -113,7 +114,7 @@ The panel on the right shows more facts about the model under the cursor.
 On a narrow terminal, that panel moves below the list.
 
 ```text
-╭─ Select a model ── ↵ · ←→ · ^S★ · ^↑↓ · ^D · ^E · ⇥ · esc ─╮
+╭─ Select a model ── ↵ · ⇥ · ^S★ · ^↑↓ · ^D · ^E · ⇧⇥ · esc ─╮
 │ View: starred | all | hidden  2 starred, 1 hidden, 3 total │
 │ >                                                          │
 ├───────────────────────┬────────────────────────────────────┤
@@ -124,7 +125,7 @@ On a narrow terminal, that panel moves below the list.
 
 ## The three views
 
-Press `Tab` to go to the next view.
+Press `Shift+Tab` to go to the next view.
 
 | View | What it lists |
 |---|---|
@@ -134,14 +135,17 @@ Press `Tab` to go to the next view.
 
 ## Set the thinking level of a model
 
-Press `Right` to raise the level, and `Left` to lower it.
+Press `Tab` to move the level of the model under the cursor.
 The level is saved against the model, so every model can hold its own.
 Pi applies it when you switch to that model.
 
 ```text
 → · <model-id>  1.0M $5/$25  medium ·      before
-→ · <model-id>  1.0M $5/$25  high         after Right
+→ · <model-id>  1.0M $5/$25  high         after Tab
 ```
+
+`Tab` goes up, and starts again at the bottom after the top level.
+One key reaches every level that way.
 
 The dot tells you where the level came from.
 
@@ -151,10 +155,10 @@ The dot tells you where the level came from.
 | `high` | You set this level. It stays, whatever the default becomes. |
 | `-` | The model cannot think. Both keys do nothing. |
 
-Each model offers its own levels, so the keys stop at that model's ends.
+Each model offers its own levels.
 A model may go `off`, `low`, `medium`, `high`, `xhigh`, `max`, and another may
 only go `low`, `medium`, `high`.
-The keys never wrap around.
+A model with one level, or with none, ignores the key.
 
 To hand a model back to your global default, step the level onto the default.
 The dot comes back, and the entry leaves `settings.json`.
@@ -162,11 +166,24 @@ The dot comes back, and the entry leaves `settings.json`.
 Your global default stays where it is.
 Use pi's own `/thinking` command to change that.
 
+## Keys the filter box keeps
+
+The filter box takes every key the picker does not claim.
+The arrow keys reach it, so the text stays editable in the normal way.
+
+| Key | What it does |
+|---|---|
+| `Left` / `Right` | Move the cursor one character |
+| `Ctrl+B` / `Ctrl+F` | Move the cursor one character |
+| `Alt+Left` / `Alt+Right` | Move the cursor one word |
+| `Home` / `Ctrl+A` | Jump to the start |
+| `End` | Jump to the end |
+
 ## Star and sort your models
 
 1. Move the cursor to a model.
 2. Press `Ctrl+S` to star it.
-3. Press `Tab` until the view shows `starred`.
+3. Press `Shift+Tab` until the view shows `starred`.
 4. Press `Ctrl+Up` or `Ctrl+Down` to move the model.
 
 The order applies to starred models only.
@@ -178,7 +195,7 @@ A hidden model leaves the `all` view.
 
 To get it back:
 
-1. Press `Tab` until the view shows `hidden`.
+1. Press `Shift+Tab` until the view shows `hidden`.
 2. Move the cursor to the model.
 3. Press `Ctrl+E`.
 
@@ -261,14 +278,10 @@ A write keeps the fields it does not own, because it locks the file first.
 2. `Ctrl+Up` and `Ctrl+Down` save the order that the picker loaded at open time.
    A star added by another session after that point can go away.
 3. If two sessions write at the same moment, the last write wins.
-4. `Left` and `Right` belong to the picker, so they no longer move the cursor in
-   the filter box.
-   Use `Ctrl+B` and `Ctrl+F` to move one character, `Alt+Left` and `Alt+Right` to
-   move one word, and `Home` and `End` to jump to the ends.
-   `Ctrl+A` also jumps to the start, but `Ctrl+E` does not jump to the end,
-   because the picker takes it to hide a model.
-5. A level you set applies the next time pi switches to that model.
+4. A level you set applies the next time pi switches to that model.
    It does not change the level of the session you are in until then.
+5. `Ctrl+E` hides a model, so it does not jump to the end of the filter text.
+   Use `End` for that.
 
 ## FAQ
 

@@ -7,7 +7,7 @@ import {
   effectiveThinkingLevel,
   formatPricePair,
   formatTokens,
-  stepThinkingLevel,
+  supportedThinkingLevels,
   thinkingLevelColor,
 } from "./model-facts.ts";
 import { type ModelThinkingStore, modelKey, type StarStore } from "./store.ts";
@@ -335,12 +335,15 @@ export class RichModelPicker extends Container implements Focusable {
   }
 
   /**
-   * Move the level of the model under the cursor.
+   * Step the level of the model under the cursor to the next one it supports.
+   *
+   * Wraps at the top. One key has to reach every level, so stopping at the end
+   * would strand a user at `max` with no way back.
    *
    * The level is saved against the model, not the session, so a row far from
    * the model in use can still be set. Pi applies it when it switches there.
    */
-  private moveThinkingLevel(direction: -1 | 1): void {
+  private cycleThinkingLevel(): void {
     const item = this.filtered[this.selectedIndex];
     if (!item) return;
     if (!item.model.reasoning) {
@@ -348,13 +351,18 @@ export class RichModelPicker extends Container implements Focusable {
       return;
     }
 
-    const { level } = this.levelOf(item);
-    const next = stepThinkingLevel(item.model, level, direction);
-    if (!next) {
-      // Already at an end. Say so, rather than leave the key looking broken.
-      this.setStatus(`${item.id} is at its ${direction > 0 ? "highest" : "lowest"} level (${level}).`, "muted");
+    const levels = supportedThinkingLevels(item.model);
+    if (levels.length < 2) {
+      this.setStatus(`${item.id} has one thinking level only (${levels[0] ?? "none"}).`, "muted");
       return;
     }
+
+    const { level } = this.levelOf(item);
+    const index = levels.indexOf(level);
+    // An unknown level means the row is out of step with the model. Starting at
+    // the bottom still moves, instead of leaving the key looking broken.
+    const next = levels[index < 0 ? 0 : (index + 1) % levels.length];
+    if (!next) return;
 
     // A pin equal to the global default only repeats it, and would then stop
     // following a later change to that default. Clearing keeps one meaning for
@@ -661,31 +669,31 @@ export class RichModelPicker extends Container implements Focusable {
     if (this.scope === "starred") {
       hints = [
         { long: "Enter pick", short: "↵" },
-        { long: "←/→ thinking", short: "←→" },
+        { long: "Tab thinking", short: "⇥" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+↑/↓ reorder", short: "^↑↓" },
         { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
-        { long: "Tab all", short: "⇥" },
+        { long: "Shift+Tab all", short: "⇧⇥" },
         { long: "Esc close", short: "esc" },
       ];
     } else if (this.scope === "hidden") {
       hints = [
         { long: "Enter pick", short: "↵" },
-        { long: "←/→ thinking", short: "←→" },
+        { long: "Tab thinking", short: "⇥" },
         { long: "Ctrl+E restore", short: "^E" },
         { long: "Ctrl+D default", short: "^D" },
-        { long: "Tab starred", short: "⇥" },
+        { long: "Shift+Tab starred", short: "⇧⇥" },
         { long: "Esc close", short: "esc" },
       ];
     } else {
       hints = [
         { long: "Enter pick", short: "↵" },
-        { long: "←/→ thinking", short: "←→" },
+        { long: "Tab thinking", short: "⇥" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
-        { long: "Tab hidden", short: "⇥" },
+        { long: "Shift+Tab hidden", short: "⇧⇥" },
         { long: "Esc close", short: "esc" },
       ];
     }
@@ -829,16 +837,6 @@ export class RichModelPicker extends Container implements Focusable {
       this.reorder(1);
       return;
     }
-    // Before the search box sees them: the box keeps Ctrl+B, Ctrl+F, Home,
-    // End and the Alt arrows, so it stays editable without these two.
-    if (matchesKey(data, "left")) {
-      this.moveThinkingLevel(-1);
-      return;
-    }
-    if (matchesKey(data, "right")) {
-      this.moveThinkingLevel(1);
-      return;
-    }
     if (matchesKey(data, "ctrl+s")) {
       this.toggleStar();
       return;
@@ -855,13 +853,19 @@ export class RichModelPicker extends Container implements Focusable {
       void this.toggleDefault();
       return;
     }
-    if (matchesKey(data, "tab")) {
+    // Shift+Tab arrives as its own sequence (CSI Z), so it cannot be confused
+    // with Tab. Testing it first keeps that plain to a reader.
+    if (matchesKey(data, "shift+tab")) {
       const next = SCOPE_ORDER[(SCOPE_ORDER.indexOf(this.scope) + 1) % SCOPE_ORDER.length];
       if (next) this.scope = next;
       this.selectedIndex = 0;
       this.setStatus("", "muted");
       this.applyFilter();
       this.updateHint();
+      return;
+    }
+    if (matchesKey(data, "tab")) {
+      this.cycleThinkingLevel();
       return;
     }
     if (matchesKey(data, "enter") || matchesKey(data, "return")) {

@@ -66,30 +66,6 @@ export function effectiveThinkingLevel(
   return { level: clampThinkingLevel(model, requested), pinned: pinnedLevel !== undefined };
 }
 
-/**
- * Step a level along the list the model supports.
- *
- * Stops at both ends instead of wrapping. A level is an ordered scale, so a
- * user holding the right arrow wants the top of it, not a jump back to `off`.
- * Returns undefined when nothing moves, so the caller can skip a save.
- */
-export function stepThinkingLevel(
-  model: Model<any>,
-  current: ModelThinkingLevel,
-  direction: -1 | 1,
-): ModelThinkingLevel | undefined {
-  if (!model.reasoning) return undefined;
-  const levels = supportedThinkingLevels(model);
-  const index = levels.indexOf(current);
-  // An unknown current level means the caller is out of step with the model.
-  // Start from the nearest end so the key still does something sensible.
-  const from = index >= 0 ? index : direction > 0 ? -1 : levels.length;
-  const target = from + direction;
-  if (target < 0 || target >= levels.length) return undefined;
-  const next = levels[target];
-  return next === current ? undefined : next;
-}
-
 export function formatHost(baseUrl: string | undefined): string {
   if (!baseUrl) return "-";
   try {
