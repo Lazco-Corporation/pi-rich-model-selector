@@ -4,7 +4,7 @@
   "description": "Pi extension: a model picker that shows context size, price, thinking levels, and key state, with starred models in your own order",
   "type": "module",
   "license": "AGPL-3.0-or-later",
-  "author": "OnCloud125252 <onc125252@gmail.com>",
+  "author": "Lazco Corporation (拉資科科技有限公司)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Lazco-Corporation/pi-rich-model-selector.git"
