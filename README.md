@@ -1,4 +1,4 @@
-# @lazco-studio/pi-rich-model-selector
+# @lazco/pi-rich-model-selector
 
 **A model picker for pi. It shows model facts, and it keeps your starred models in the order you set.**
 
@@ -31,13 +31,21 @@ You can set the thinking level of each model, star a model, hide a model, and so
 ## Install
 
 ```bash
-pi install npm:@lazco-studio/pi-rich-model-selector
+pi install npm:@lazco/pi-rich-model-selector
 ```
+
+> [!IMPORTANT]
+> This package was named `@lazco-studio/pi-rich-model-selector` up to and including `0.4.0`. From `0.5.0` it is `@lazco/pi-rich-model-selector`. The old name is deprecated and receives no further releases. To switch, uninstall the old one first:
+>
+> ```bash
+> pi uninstall npm:@lazco-studio/pi-rich-model-selector
+> pi install npm:@lazco/pi-rich-model-selector
+> ```
 
 To try it for one session only:
 
 ```bash
-pi -e npm:@lazco-studio/pi-rich-model-selector
+pi -e npm:@lazco/pi-rich-model-selector
 ```
 
 ## Open the picker

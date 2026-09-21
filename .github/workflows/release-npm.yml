@@ -16,13 +16,16 @@
 #
 # ── CONFIG SOURCED FROM INFISICAL ──────────────────────────────────────────
 #   Project: lazco-pi-rich-model-selector   Path: /ci   Env-slug: prod
-#   NPM_TOKEN   npm automation token with publish rights on @lazco-studio
+#   NPM_TOKEN   npm automation token with publish rights on @lazco
 #
 # The only GitHub-native config is the OIDC bootstrap:
 #   vars.INFISICAL_CI_IDENTITY_ID   Infisical machine-identity id
 #
 # This package ships TypeScript source (see `files` in package.json), so there
 # is no build step. `npm run check` is the gate.
+#
+# The job runs on a GitHub-hosted runner on purpose. Blacksmith is for heavy
+# CPU or a warm disk cache, which an npm publish does not need.
 
 name: Release (npm)
 
