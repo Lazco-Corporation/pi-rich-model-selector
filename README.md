@@ -35,7 +35,10 @@ pi install npm:@lazco/pi-rich-model-selector
 ```
 
 > [!IMPORTANT]
-> This package was named `@lazco-studio/pi-rich-model-selector` up to and including `0.4.0`. From `0.5.0` it is `@lazco/pi-rich-model-selector`. The old name is deprecated and receives no further releases. To switch, uninstall the old one first:
+> This package was named `@lazco-studio/pi-rich-model-selector`.
+> That name stopped at `0.4.0` and gets no further release.
+> Every release after it ships under `@lazco/pi-rich-model-selector`.
+> To switch, uninstall the old name first:
 >
 > ```bash
 > pi uninstall npm:@lazco-studio/pi-rich-model-selector
