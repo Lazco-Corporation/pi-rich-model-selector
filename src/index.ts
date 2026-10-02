@@ -347,11 +347,4 @@ export default function (pi: ExtensionAPI) {
       await openPicker(pi, ctx, argument || undefined);
     },
   });
-
-  pi.registerShortcut("alt+m", {
-    description: "Open the rich model picker",
-    handler: async (ctx) => {
-      await openPicker(pi, ctx);
-    },
-  });
 }

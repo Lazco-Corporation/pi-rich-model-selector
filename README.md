@@ -59,7 +59,7 @@ All three open the same picker.
 1. Type `/model`.
    This extension takes over the built-in command.
 2. Type `/models`.
-3. Press `Ctrl+L`, or press `Alt+M`.
+3. Press `Ctrl+L`, or the key you bound to pi's `app.model.select` action.
 
 To open the picker with a filter, add a word:
 

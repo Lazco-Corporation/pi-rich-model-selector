@@ -21,7 +21,7 @@ All source sits under `src/`.
 
 | File | What it holds |
 |---|---|
-| `index.ts` | the command, the shortcut, and the editor that takes over `/model` |
+| `index.ts` | the command, and the editor that takes over `/model` and pi's model picker key |
 | `picker.ts` | the picker component |
 | `window.ts` | the window frame that draws the border, the title, and the hint |
 | `keys.ts` | turns the keys pi binds into the text the hint shows |
