@@ -518,7 +518,7 @@ export async function writeEnabledModels(cwd: string, agentDir: string, patterns
  * model instead of the session. Pi owns the file, so every write goes through
  * `SettingsManager`.
  *
- * The arrow keys make this a hot path: a user steps through four levels in a
+ * Shift+Tab makes this a hot path: a user steps through four levels in a
  * second, and each step would otherwise be a locked read-modify-write. So a
  * change waits briefly, and only the last one reaches the disk.
  */

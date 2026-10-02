@@ -78,13 +78,13 @@ Either way you keep the models pi already had.
 |---|---|
 | Type text | Filter the list |
 | `Up` / `Down` | Move the cursor |
-| `Tab` | Move the thinking level of the model to the next one |
+| `Shift+Tab` | Move the thinking level of the model to the next one |
 | `Ctrl+S` | Star the model, or remove the star |
 | `Ctrl+D` | Make the model the startup model, or clear it |
 | `Ctrl+E` | Hide the model, or show it again |
 | `Ctrl+Up` / `Ctrl+Down` | Move a starred model up or down |
 | `Alt+Up` / `Alt+Down` | Move a starred model up or down (second key) |
-| `Shift+Tab` | Change the view |
+| `Tab` | Change the view |
 | `Enter` | Use the model under the cursor |
 | `Esc` or `Ctrl+C` | Close the picker and change nothing |
 
@@ -125,7 +125,7 @@ The panel on the right shows more facts about the model under the cursor.
 On a narrow terminal, that panel moves below the list.
 
 ```text
-╭─ Select a model ── ↵ · ⇥ · ^S★ · ^↑↓ · ^D · ^E · ⇧⇥ · esc ─╮
+╭─ Select a model ── ↵ · ⇧⇥ · ^S★ · ^↑↓ · ^D · ^E · ⇥ · esc ─╮
 │ View: starred | all | hidden  2 starred, 1 hidden, 3 total │
 │ >                                                          │
 ├───────────────────────┬────────────────────────────────────┤
@@ -136,7 +136,7 @@ On a narrow terminal, that panel moves below the list.
 
 ## The three views
 
-Press `Shift+Tab` to go to the next view.
+Press `Tab` to go to the next view.
 
 | View | What it lists |
 |---|---|
@@ -146,16 +146,17 @@ Press `Shift+Tab` to go to the next view.
 
 ## Set the thinking level of a model
 
-Press `Tab` to move the level of the model under the cursor.
+Press `Shift+Tab` to move the level of the model under the cursor.
+It is the key pi itself uses to cycle the thinking level.
 The level is saved against the model, so every model can hold its own.
 Pi applies it when you switch to that model.
 
 ```text
 → · <model-id>  1.0M $5/$25  medium ·      before
-→ · <model-id>  1.0M $5/$25  high         after Tab
+→ · <model-id>  1.0M $5/$25  high          after Shift+Tab
 ```
 
-`Tab` goes up, and starts again at the bottom after the top level.
+`Shift+Tab` goes up, and starts again at the bottom after the top level.
 One key reaches every level that way.
 
 The dot tells you where the level came from.
@@ -164,7 +165,7 @@ The dot tells you where the level came from.
 |---|---|
 | `high ·` | No level set. The model follows your global default. |
 | `high` | You set this level. It stays, whatever the default becomes. |
-| `-` | The model cannot think. Both keys do nothing. |
+| `-` | The model cannot think. The key does nothing. |
 
 Each model offers its own levels.
 A model may go `off`, `low`, `medium`, `high`, `xhigh`, `max`, and another may
@@ -194,7 +195,7 @@ The arrow keys reach it, so the text stays editable in the normal way.
 
 1. Move the cursor to a model.
 2. Press `Ctrl+S` to star it.
-3. Press `Shift+Tab` until the view shows `starred`.
+3. Press `Tab` until the view shows `starred`.
 4. Press `Ctrl+Up` or `Ctrl+Down` to move the model.
 
 The order applies to starred models only.
@@ -206,7 +207,7 @@ A hidden model leaves the `all` view.
 
 To get it back:
 
-1. Press `Shift+Tab` until the view shows `hidden`.
+1. Press `Tab` until the view shows `hidden`.
 2. Move the cursor to the model.
 3. Press `Ctrl+E`.
 

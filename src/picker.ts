@@ -41,7 +41,7 @@ export interface ModelItem {
   searchText: string;
   /**
    * The level column, as text and as columns. Set at load, and again for the
-   * one row an arrow key changes. Working it out means asking pi which levels
+   * one row Shift+Tab changes. Working it out means asking pi which levels
    * the model accepts, and that is too slow to repeat for a thousand rows on
    * every key press.
    */
@@ -61,7 +61,7 @@ export interface PickerOptions {
   tui: TUI;
   theme: PickerTheme;
   store: StarStore;
-  /** Per-model thinking levels. The left and right keys write through this. */
+  /** Per-model thinking levels. Shift+Tab writes through this. */
   thinkingStore: ModelThinkingStore;
   /** Thinking level used by any model without an entry of its own. */
   defaultThinkingLevel: ModelThinkingLevel;
@@ -669,31 +669,31 @@ export class RichModelPicker extends Container implements Focusable {
     if (this.scope === "starred") {
       hints = [
         { long: "Enter pick", short: "↵" },
-        { long: "Tab thinking", short: "⇥" },
+        { long: "Shift+Tab thinking", short: "⇧⇥" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+↑/↓ reorder", short: "^↑↓" },
         { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
-        { long: "Shift+Tab all", short: "⇧⇥" },
+        { long: "Tab all", short: "⇥" },
         { long: "Esc close", short: "esc" },
       ];
     } else if (this.scope === "hidden") {
       hints = [
         { long: "Enter pick", short: "↵" },
-        { long: "Tab thinking", short: "⇥" },
+        { long: "Shift+Tab thinking", short: "⇧⇥" },
         { long: "Ctrl+E restore", short: "^E" },
         { long: "Ctrl+D default", short: "^D" },
-        { long: "Shift+Tab starred", short: "⇧⇥" },
+        { long: "Tab starred", short: "⇥" },
         { long: "Esc close", short: "esc" },
       ];
     } else {
       hints = [
         { long: "Enter pick", short: "↵" },
-        { long: "Tab thinking", short: "⇥" },
+        { long: "Shift+Tab thinking", short: "⇧⇥" },
         { long: "Ctrl+S star", short: "^S★" },
         { long: "Ctrl+D default", short: "^D" },
         { long: "Ctrl+E hide", short: "^E" },
-        { long: "Shift+Tab hidden", short: "⇧⇥" },
+        { long: "Tab hidden", short: "⇥" },
         { long: "Esc close", short: "esc" },
       ];
     }
@@ -853,19 +853,20 @@ export class RichModelPicker extends Container implements Focusable {
       void this.toggleDefault();
       return;
     }
-    // Shift+Tab arrives as its own sequence (CSI Z), so it cannot be confused
-    // with Tab. Testing it first keeps that plain to a reader.
+    // Shift+Tab is the key pi itself cycles the thinking level with, so a user
+    // reaches for the same key here. It arrives as its own sequence (CSI Z), so
+    // it cannot be confused with Tab. Testing it first keeps that plain.
     if (matchesKey(data, "shift+tab")) {
+      this.cycleThinkingLevel();
+      return;
+    }
+    if (matchesKey(data, "tab")) {
       const next = SCOPE_ORDER[(SCOPE_ORDER.indexOf(this.scope) + 1) % SCOPE_ORDER.length];
       if (next) this.scope = next;
       this.selectedIndex = 0;
       this.setStatus("", "muted");
       this.applyFilter();
       this.updateHint();
-      return;
-    }
-    if (matchesKey(data, "tab")) {
-      this.cycleThinkingLevel();
       return;
     }
     if (matchesKey(data, "enter") || matchesKey(data, "return")) {

@@ -31,8 +31,8 @@ export function formatPricePair(model: Model<any>): string {
  * This asks pi rather than reading `thinkingLevelMap` here, because pi's rule
  * is not uniform: `xhigh` and `max` must be written out to count, while the
  * other levels count unless the map sets them to null. A second copy of that
- * rule would offer levels pi then refuses, and the arrow keys would step onto
- * a level the model cannot use.
+ * rule would offer levels pi then refuses, and Shift+Tab would step onto a
+ * level the model cannot use.
  */
 export function supportedThinkingLevels(model: Model<any>): ModelThinkingLevel[] {
   return getSupportedThinkingLevels(model);

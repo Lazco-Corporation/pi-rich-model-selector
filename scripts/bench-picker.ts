@@ -141,10 +141,10 @@ results.star = measure("toggle star twice + render", 100, () => {
   picker.render(WIDTH);
 });
 
-results.thinking = measure("thinking level right then left + render", 100, () => {
-  picker.handleInput("\x1b[C");
+results.thinking = measure("thinking level Shift+Tab twice + render", 100, () => {
+  picker.handleInput("\x1b[Z");
   picker.render(WIDTH);
-  picker.handleInput("\x1b[D");
+  picker.handleInput("\x1b[Z");
   picker.render(WIDTH);
 });
 

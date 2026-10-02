@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
+import { supportedThinkingLevels } from "../../src/model-facts.ts";
 import { RichModelPicker } from "../../src/picker.ts";
 import { ModelThinkingStore, StarStore } from "../../src/store.ts";
 
@@ -93,6 +94,9 @@ expect("cursor on current", cursorIndex(), 2);
 expect("context column aligned", contextColumns(), 1);
 expect("b1 shows '-'", / - /.test(rowOf("b1").replace(/\s+/g, " ")), true);
 expect("z1 inherits", rowOf("z1").includes("medium ·"), true);
+const hint = picker.render(WIDTH)[0] ?? "";
+expect("hint names Shift+Tab for thinking", hint.includes("Shift+Tab thinking"), true);
+expect("hint names Tab for the view", hint.includes("· Tab hidden"), true);
 
 // A search keeps the sorted relative order.
 picker.handleInput("g");
@@ -128,15 +132,19 @@ picker.handleInput("\t");
 picker.handleInput("\t");
 expect("b1 restored", ids().includes("b1"), true);
 
-// A level change re-sizes the column, and the columns still line up.
+// Shift+Tab steps the level. A level change re-sizes the column, and the
+// columns still line up.
+const SHIFT_TAB = "\x1b[Z";
 moveCursorTo("b-longer-name-here");
-picker.handleInput("\x1b[C");
-picker.handleInput("\x1b[C");
+picker.handleInput(SHIFT_TAB);
+picker.handleInput(SHIFT_TAB);
+expect("Shift+Tab keeps the view", ids().includes("b-longer-name-here"), true);
 expect("pinned xhigh, no dot", rowOf("b-longer-name-here").includes("xhigh ·"), false);
 expect("pinned xhigh present", rowOf("b-longer-name-here").includes(" xhigh"), true);
 expect("columns aligned after level change", contextColumns(), 1);
-picker.handleInput("\x1b[D");
-picker.handleInput("\x1b[D");
+// The level wraps, so the rest of one full cycle lands back on the default.
+const levelCount = supportedThinkingLevels(models[4]!).length;
+for (let step = 2; step < levelCount; step++) picker.handleInput(SHIFT_TAB);
 expect("back to inherited", rowOf("b-longer-name-here").includes("medium ·"), true);
 picker.dispose();
 await thinkingStore.flush();
