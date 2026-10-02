@@ -59,10 +59,11 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
   const levelInUseAtOpen = modelInUse ? savedLevel(modelInUse) : undefined;
 
   const usage = ctx.getContextUsage();
-  const selected = await ctx.ui.custom<Model<any> | undefined>((tui, theme, _keybindings, done) => {
+  const selected = await ctx.ui.custom<Model<any> | undefined>((tui, theme, keybindings, done) => {
     return new RichModelPicker({
       tui,
       theme,
+      keybindings,
       store: activeStore,
       thinkingStore: levels,
       defaultThinkingLevel: inheritedLevel,

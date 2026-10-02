@@ -74,19 +74,25 @@ Either way you keep the models pi already had.
 
 ## Keys
 
-| Key | Action |
-|---|---|
-| Type text | Filter the list |
-| `Up` / `Down` | Move the cursor |
-| `Shift+Tab` | Move the thinking level of the model to the next one |
-| `Ctrl+S` | Star the model, or remove the star |
-| `Ctrl+D` | Make the model the startup model, or clear it |
-| `Ctrl+E` | Hide the model, or show it again |
-| `Ctrl+Up` / `Ctrl+Down` | Move a starred model up or down |
-| `Alt+Up` / `Alt+Down` | Move a starred model up or down (second key) |
-| `Tab` | Change the view |
-| `Enter` | Use the model under the cursor |
-| `Esc` or `Ctrl+C` | Close the picker and keep the model you use now |
+| Key | Action | Pi action |
+|---|---|---|
+| Type text | Filter the list | |
+| `Up` / `Down` | Move the cursor | `tui.select.up` / `tui.select.down` |
+| `PageUp` / `PageDown` | Move the cursor one page | `tui.select.pageUp` / `tui.select.pageDown` |
+| `Shift+Tab` | Move the thinking level up, and start again at the bottom after the top | `app.thinking.cycle` |
+| `Shift+Left` / `Shift+Right` | Move the thinking level one step down or up | |
+| `Ctrl+T` | Star the model, or remove the star | |
+| `Ctrl+S` | Make the model the startup model, or clear it | `app.models.save` |
+| `Ctrl+X` | Hide the model, or show it again | |
+| `Alt+Up` / `Alt+Down` | Move a starred model up or down | `app.models.reorderUp` / `app.models.reorderDown` |
+| `Tab` | Change the view | `tui.input.tab` |
+| `Enter` | Use the model under the cursor | `tui.select.confirm` |
+| `Esc` or `Ctrl+C` | Close the picker and keep the model you use now | `tui.select.cancel` |
+
+A key with a pi action is the key pi uses for the same action in its own pickers.
+It follows your `keybindings.json`, so a key you rebind moves in the picker and in its key hint too.
+The keys without a pi action are fixed.
+On macOS, `Alt` is the `Option` key, and the key hint says `Option`.
 
 ## Commands
 
@@ -126,13 +132,13 @@ The panel on the right shows more facts about the model under the cursor.
 On a narrow terminal, that panel moves below the list.
 
 ```text
-╭─ Select a model ── ↵ · ⇧⇥ · ^S★ · ^↑↓ · ^D · ^E · ⇥ · esc ─╮
-│ View: starred | all | hidden  2 starred, 1 hidden, 3 total │
-│ >                                                          │
-├───────────────────────┬────────────────────────────────────┤
-│ → ★ <model-id>        │ <model-id>…                        │
-│   ★ <other-model-id>  │ Name    …                          │
-╰───────────────────────┴────────────────────────────────────╯
+╭─ Select a model ── ↵ · ⇧⇥←→ · ^T★ · ⌥↑↓ · ^S · ^X · ⇥ · esc ─╮
+│ View: starred | all | hidden  2 starred, 1 hidden, 3 total   │
+│ >                                                            │
+├───────────────────────┬──────────────────────────────────────┤
+│ → ★ <model-id>        │ <model-id>…                          │
+│   ★ <other-model-id>  │ Name    …                            │
+╰───────────────────────┴──────────────────────────────────────╯
 ```
 
 ## The three views
@@ -149,6 +155,7 @@ Press `Tab` to go to the next view.
 
 Press `Shift+Tab` to move the level of the model under the cursor.
 It is the key pi itself uses to cycle the thinking level.
+Press `Shift+Left` or `Shift+Right` to move the level one step down or up.
 The level is saved against the model, so every model can hold its own.
 Pi applies it when you switch to that model, from the picker or with `Ctrl+P`.
 A new level for the model in use applies at once, even when you close the picker with `Esc`.
@@ -163,6 +170,7 @@ It gives way once you change the level of the model in use, or switch model.
 
 `Shift+Tab` goes up, and starts again at the bottom after the top level.
 One key reaches every level that way.
+`Shift+Left` and `Shift+Right` stop at the lowest and the highest level, and say so.
 
 The dot tells you where the level came from.
 
@@ -170,12 +178,12 @@ The dot tells you where the level came from.
 |---|---|
 | `high ·` | No level set. The model follows your global default, or the level pi runs at now when you have no default. |
 | `high` | You set this level. It stays, whatever the default becomes. |
-| `-` | The model cannot think. The key does nothing. |
+| `-` | The model cannot think. The level keys do nothing. |
 
 Each model offers its own levels.
 A model may go `off`, `low`, `medium`, `high`, `xhigh`, `max`, and another may
 only go `low`, `medium`, `high`.
-A model with one level, or with none, ignores the key.
+A model with one level, or with none, ignores the level keys.
 
 To hand a model back to your global default, step the level onto the default.
 The dot comes back, and the entry leaves `settings.json`.
@@ -189,7 +197,8 @@ Pi reads it in that order too.
 ## Keys the filter box keeps
 
 The filter box takes every key the picker does not claim.
-The arrow keys reach it, so the text stays editable in the normal way.
+The picker claims none of the keys pi's editor uses for text, so the box edits the way pi's editor does.
+That includes any editing key you rebind in `keybindings.json`.
 
 | Key | What it does |
 |---|---|
@@ -197,27 +206,34 @@ The arrow keys reach it, so the text stays editable in the normal way.
 | `Ctrl+B` / `Ctrl+F` | Move the cursor one character |
 | `Alt+Left` / `Alt+Right` | Move the cursor one word |
 | `Home` / `Ctrl+A` | Jump to the start |
-| `End` | Jump to the end |
+| `End` / `Ctrl+E` | Jump to the end |
+| `Ctrl+D` | Delete the character under the cursor |
+| `Ctrl+W` / `Ctrl+U` / `Ctrl+K` | Delete a word, to the start, or to the end |
+
+In fullscreen mode, pi keeps `Home` and `End` for the transcript.
+Use `Ctrl+A` and `Ctrl+E` there.
 
 ## Star and sort your models
 
 1. Move the cursor to a model.
-2. Press `Ctrl+S` to star it.
+2. Press `Ctrl+T` to star it.
 3. Press `Tab` until the view shows `starred`.
-4. Press `Ctrl+Up` or `Ctrl+Down` to move the model.
+4. Press `Alt+Up` or `Alt+Down` to move the model.
+
+These are the keys pi's own `/scoped-models` picker uses to sort models.
 
 The order applies to starred models only.
 
 ## Hide a model you do not use
 
-Press `Ctrl+E` to hide the model under the cursor.
+Press `Ctrl+X` to hide the model under the cursor.
 A hidden model leaves the `all` view.
 
 To get it back:
 
 1. Press `Tab` until the view shows `hidden`.
 2. Move the cursor to the model.
-3. Press `Ctrl+E`.
+3. Press `Ctrl+X`.
 
 Three rules apply:
 
@@ -230,12 +246,16 @@ Three rules apply:
 ## Set the model pi starts with
 
 1. Move the cursor to the model.
-2. Press `Ctrl+D`.
+2. Press `Ctrl+S`.
 
 The row shows `·default` at once.
 Pi opens with that model the next time it starts.
 
-To clear it, move the cursor to the default model and press `Ctrl+D` again.
+`Ctrl+S` saves the startup model in pi's own picker too.
+Pi's picker also switches to the model and closes.
+This picker stays open and keeps the model you use now, so you can set the default without leaving the model you are on.
+
+To clear it, move the cursor to the default model and press `Ctrl+S` again.
 Pi then goes back to its own defaults.
 Restart pi to apply the change.
 
@@ -295,28 +315,45 @@ A write keeps the fields it does not own, because it locks the file first.
 
 1. An open picker does not follow file changes.
    Close the picker and open it again to see an edit made somewhere else.
-2. `Ctrl+Up` and `Ctrl+Down` save the order that the picker loaded at open time.
+2. `Alt+Up` and `Alt+Down` save the order that the picker loaded at open time.
    A star added by another session after that point can go away.
 3. If two sessions write at the same moment, the last write wins.
 4. A level you set applies the next time pi switches to that model.
    It does not change the level of the session you are in until then.
-5. `Ctrl+E` hides a model, so it does not jump to the end of the filter text.
-   Use `End` for that.
+5. In fullscreen mode, `PageUp` and `PageDown` scroll the transcript and do not reach the picker.
+   Pi's own pickers work the same way.
+   See the FAQ to page the list there.
 
 ## FAQ
 
-#### Why do Ctrl+Up and Ctrl+Down do nothing on macOS?
+#### How do I change a key?
 
-macOS takes `Ctrl+Up` for Mission Control and `Ctrl+Down` for Application Windows.
-Those keys never reach pi.
+Add the pi action from the [Keys](#keys) table to `~/.pi/agent/keybindings.json`, then run `/reload`.
+The change applies in pi's own pickers too, because they use the same action.
 
-You have two options:
+```json
+{
+  "app.models.reorderUp": "<key>",
+  "app.models.reorderDown": "<key>"
+}
+```
 
-1. Use `Alt+Up` and `Alt+Down`.
-   They do the same thing.
-2. Turn the macOS shortcuts off.
-   Go to System Settings, then Keyboard, then Keyboard Shortcuts, then Mission Control.
-   Clear the Mission Control box and the Application Windows box.
+See pi's keybindings documentation for the key syntax.
+The keys without a pi action cannot be changed.
+
+#### How do I page the list in fullscreen mode?
+
+Fullscreen mode takes `PageUp` and `PageDown` for the transcript before the picker sees them.
+Bind the page actions to a second key that the transcript leaves alone:
+
+```json
+{
+  "tui.select.pageUp": ["pageUp", "shift+up"],
+  "tui.select.pageDown": ["pageDown", "shift+down"]
+}
+```
+
+This pages every list in pi, not only this picker.
 
 #### Does this break my other editor extensions?
 

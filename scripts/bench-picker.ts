@@ -11,6 +11,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
+// The package exports the type only, so the real class comes by path.
+import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { RichModelPicker } from "../src/picker.ts";
 import { ModelThinkingStore, modelKey, StarStore } from "../src/store.ts";
 
@@ -56,6 +58,8 @@ store.toggleHidden(modelKey(models[40]!.provider, models[40]!.id));
 store.flush();
 
 const WIDTH = 160;
+// Pi builds its keybindings once, not once per picker, so the timings must not count it.
+const keybindings = new KeybindingsManager();
 
 function measure(label: string, iterations: number, action: () => void): number {
   // Warm up once so JIT and caches do not count against the first run.
@@ -72,6 +76,7 @@ function makePicker(initialSearch?: string): RichModelPicker {
   return new RichModelPicker({
     tui: tui as never,
     theme,
+    keybindings,
     store,
     thinkingStore,
     defaultThinkingLevel: "medium",
@@ -135,9 +140,9 @@ results.tab = measure("tab through 3 views + render", 100, () => {
 });
 
 results.star = measure("toggle star twice + render", 100, () => {
-  picker.handleInput("\x13");
+  picker.handleInput("\x14");
   picker.render(WIDTH);
-  picker.handleInput("\x13");
+  picker.handleInput("\x14");
   picker.render(WIDTH);
 });
 

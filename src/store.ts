@@ -461,7 +461,7 @@ async function updateSettings(cwd: string, agentDir: string, mutate: (settings: 
  * edit or another session's change instead of a copy from session start.
  */
 export function readDefaultModel(cwd: string, agentDir: string): { provider: string; id: string } | undefined {
-  // Global scope only. Ctrl+D writes the global file, so reading the merged
+  // Global scope only. The default key writes the global file, so reading the merged
   // global-plus-project view would show a default this picker cannot clear.
   const settings = SettingsManager.create(cwd, agentDir).getGlobalSettings();
   if (!settings.defaultModel) return undefined;
@@ -515,7 +515,7 @@ export async function writeEnabledModels(cwd: string, agentDir: string, patterns
  * model instead of the session. Pi owns the file, so every write goes through
  * `SettingsManager`.
  *
- * Shift+Tab makes this a hot path: a user steps through four levels in a
+ * The level keys make this a hot path: a user steps through four levels in a
  * second, and each step would otherwise be a locked read-modify-write. So a
  * change waits briefly, and only the last one reaches the disk.
  */

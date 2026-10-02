@@ -24,6 +24,7 @@ All source sits under `src/`.
 | `index.ts` | the command, the shortcut, and the editor that takes over `/model` |
 | `picker.ts` | the picker component |
 | `window.ts` | the window frame that draws the border, the title, and the hint |
+| `keys.ts` | turns the keys pi binds into the text the hint shows |
 | `model-facts.ts` | turns a model into the text the user sees |
 | `store.ts` | reads and writes the star file and the pi settings file |
 

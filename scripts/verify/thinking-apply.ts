@@ -13,6 +13,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+// The package exports the type only, so the real class comes by path.
+import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import type { RichModelPicker } from "../../src/picker.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rich-model-selector-verify-"));
@@ -121,7 +123,7 @@ function makeContext(keys: string[]) {
           const picker = factory(
             { requestRender: () => undefined },
             { fg: (_color: string, text: string) => text },
-            undefined,
+            new KeybindingsManager(),
             resolve,
           ) as RichModelPicker;
           lastFrame = picker.render(200);

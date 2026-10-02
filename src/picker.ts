@@ -1,7 +1,8 @@
 import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
+import type { KeybindingsManager, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { Component, Focusable, Keybinding, TUI } from "@earendil-works/pi-tui";
 import { Container, fuzzyFilter, Input, matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatKeys, type KeyLabel } from "./keys.ts";
 import {
   buildFacts,
   effectiveThinkingLevel,
@@ -24,6 +25,30 @@ const SIDE_PANE_WIDTH = 46;
  */
 const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
 
+/*
+ * Keys for the actions pi has no keybinding action for. Every other key comes
+ * from pi's keybindings, so a key the user rebinds moves here too.
+ *
+ * None of these is a key pi's search box uses by default, so every editing
+ * key still reaches the box. That matters most for Ctrl+E: fullscreen mode
+ * gives Home and End to the transcript, which leaves Ctrl+E the only way to
+ * the end of the search text.
+ */
+/** Ctrl+S is pi's save key, which sets the startup default here as in pi's picker. */
+const STAR_KEY = "ctrl+t";
+/**
+ * The row marks a hidden model with ✗, and pi's scoped model picker clears
+ * models with Ctrl+X. Not Ctrl+H: a terminal may send Backspace as that byte.
+ */
+const HIDE_KEY = "ctrl+x";
+/**
+ * Shift+Tab only climbs, as it does in pi, so going one level down takes a
+ * full lap. These two step either way. Plain Left and Right stay with the
+ * search box, which needs them more.
+ */
+const LEVEL_DOWN_KEY = "shift+left";
+const LEVEL_UP_KEY = "shift+right";
+
 export interface PickerTheme {
   fg(color: string, text: string): string;
 }
@@ -41,7 +66,7 @@ export interface ModelItem {
   searchText: string;
   /**
    * The level column, as text and as columns. Set at load, and again for the
-   * one row Shift+Tab changes. Working it out means asking pi which levels
+   * one row a level key changes. Working it out means asking pi which levels
    * the model accepts, and that is too slow to repeat for a thousand rows on
    * every key press.
    */
@@ -61,8 +86,10 @@ export interface PickerOptions {
   tui: TUI;
   theme: PickerTheme;
   store: StarStore;
-  /** Per-model thinking levels. Shift+Tab writes through this. */
+  /** Per-model thinking levels. The level keys write through this. */
   thinkingStore: ModelThinkingStore;
+  /** Pi's keybindings, with the user's keybindings.json applied. */
+  keybindings: KeybindingsManager;
   /**
    * The level a model without an entry of its own switches to: the global
    * default, or the level the session runs at when there is none.
@@ -166,6 +193,7 @@ export class RichModelPicker extends Container implements Focusable {
   private readonly refreshAbort = new AbortController();
   /** The key of the model in use, so the sort compares strings, not models. */
   private readonly currentKey: string | undefined;
+  private readonly keyLabels = new Map<string, KeyLabel | undefined>();
 
   private _focused = false;
   get focused(): boolean {
@@ -338,35 +366,60 @@ export class RichModelPicker extends Container implements Focusable {
   }
 
   /**
-   * Step the level of the model under the cursor to the next one it supports.
-   *
-   * Wraps at the top. One key has to reach every level, so stopping at the end
-   * would strand a user at `max` with no way back.
-   *
-   * The level is saved against the model, not the session, so a row far from
-   * the model in use can still be set. Pi applies it when it switches there.
+   * The model under the cursor and the levels it accepts, or undefined after
+   * telling the user why its level cannot move.
    */
-  private cycleThinkingLevel(): void {
+  private levelTarget(): { item: ModelItem; levels: ModelThinkingLevel[]; index: number } | undefined {
     const item = this.filtered[this.selectedIndex];
-    if (!item) return;
+    if (!item) return undefined;
     if (!item.model.reasoning) {
       this.setStatus(`${item.id} does not support thinking.`, "error");
-      return;
+      return undefined;
     }
-
     const levels = supportedThinkingLevels(item.model);
     if (levels.length < 2) {
       this.setStatus(`${item.id} has one thinking level only (${levels[0] ?? "none"}).`, "muted");
-      return;
+      return undefined;
     }
+    return { item, levels, index: levels.indexOf(this.levelOf(item).level) };
+  }
 
-    const { level } = this.levelOf(item);
-    const index = levels.indexOf(level);
+  /**
+   * Step the level of the model under the cursor to the next one it supports.
+   *
+   * Wraps at the top, as pi's own Shift+Tab does. One key has to reach every
+   * level, so stopping at the end would strand a user at `max`.
+   */
+  private cycleThinkingLevel(): void {
+    const target = this.levelTarget();
+    if (!target) return;
+    const { item, levels, index } = target;
     // An unknown level means the row is out of step with the model. Starting at
     // the bottom still moves, instead of leaving the key looking broken.
     const next = levels[index < 0 ? 0 : (index + 1) % levels.length];
-    if (!next) return;
+    if (next) this.setThinkingLevel(item, next);
+  }
 
+  /** Step the level one way, and stop at the end of the scale. */
+  private stepThinkingLevel(direction: -1 | 1): void {
+    const target = this.levelTarget();
+    if (!target) return;
+    const { item, levels, index } = target;
+    const next = levels[index < 0 ? 0 : index + direction];
+    if (!next) {
+      // Say so, rather than leave the key looking broken.
+      const end = direction > 0 ? "highest" : "lowest";
+      this.setStatus(`${item.id} is at its ${end} thinking level (${levels[index]}).`, "muted");
+      return;
+    }
+    this.setThinkingLevel(item, next);
+  }
+
+  /**
+   * The level is saved against the model, not the session, so a row far from
+   * the model in use can still be set. Pi applies it when it switches there.
+   */
+  private setThinkingLevel(item: ModelItem, next: ModelThinkingLevel): void {
     // A pin equal to the inherited level only repeats it, and would then stop
     // following a later change to that level. Clearing keeps one meaning for
     // the dot: this row follows the default.
@@ -497,9 +550,10 @@ export class RichModelPicker extends Container implements Focusable {
     if (this.filtered.length === 0) {
       let message = "No model matches the search.";
       if (this.scope === "starred" && store.getStarred().length === 0) {
-        message = "No starred models yet. Press Tab for all, then Ctrl+S to star one.";
+        const view = this.keyName(this.actionKey("tui.input.tab"));
+        message = `No starred models yet. Press ${view} for all, then ${this.keyName(STAR_KEY)} to star one.`;
       } else if (this.scope === "hidden" && store.getHidden().length === 0) {
-        message = "No hidden models. Press Ctrl+E on a model to hide it.";
+        message = `No hidden models. Press ${this.keyName(HIDE_KEY)} on a model to hide it.`;
       }
       this.listContainer.addChild(new Text(theme.fg("muted", message), 0, 0));
       this.renderFacts();
@@ -611,7 +665,7 @@ export class RichModelPicker extends Container implements Focusable {
   private async toggleDefault(): Promise<void> {
     const item = this.filtered[this.selectedIndex];
     if (!item) return;
-    // The write is not instant, so a second Ctrl+D can arrive while the first
+    // The write is not instant, so a second press can arrive while the first
     // one runs. Two writes in flight would fight over the same two fields.
     if (this.defaultWriteInFlight) return;
     const wasDefault = this.isDefault(item);
@@ -660,6 +714,28 @@ export class RichModelPicker extends Container implements Focusable {
     this.statusText.setText(message ? this.options.theme.fg(this.statusTone, this.status) : "");
   }
 
+  /** The first key of a pi action. Undefined when the user unbound it. */
+  private actionKey(action: Keybinding): string | undefined {
+    return this.options.keybindings.getKeys(action)[0];
+  }
+
+  /** Label for a group of keys. An unbound one drops out. */
+  private keyLabel(...keyIds: (string | undefined)[]): KeyLabel | undefined {
+    const bound = keyIds.filter((keyId): keyId is string => keyId !== undefined);
+    // The hint redraws on every resize and view change, and the bindings cannot
+    // change while the picker is open: a /reload builds a new picker.
+    const cacheKey = bound.join(" ");
+    if (this.keyLabels.has(cacheKey)) return this.keyLabels.get(cacheKey);
+    const label = formatKeys(bound);
+    this.keyLabels.set(cacheKey, label);
+    return label;
+  }
+
+  /** A key name for a message. A user can unbind any action, so say so. */
+  private keyName(keyId: string | undefined): string {
+    return this.keyLabel(keyId)?.long ?? "(no key bound)";
+  }
+
   /**
    * Fits the key hints to the right of the title, in the top border.
    *
@@ -668,38 +744,28 @@ export class RichModelPicker extends Container implements Focusable {
    * right, least useful first, and then falls back to short labels.
    */
   private updateHint(): void {
-    let hints: HintItem[];
+    const hint = (label: KeyLabel | undefined, word: string, mark = ""): HintItem | undefined =>
+      label && { long: `${label.long} ${word}`, short: label.short + mark };
+    const pick = hint(this.keyLabel(this.actionKey("tui.select.confirm")), "pick");
+    const thinkingKeys = this.keyLabel(this.actionKey("app.thinking.cycle"), LEVEL_DOWN_KEY, LEVEL_UP_KEY);
+    const thinking = hint(thinkingKeys, "thinking");
+    const star = hint(this.keyLabel(STAR_KEY), "star", "★");
+    const reorderKeys = this.keyLabel(this.actionKey("app.models.reorderUp"), this.actionKey("app.models.reorderDown"));
+    const reorder = hint(reorderKeys, "reorder");
+    const setDefault = hint(this.keyLabel(this.actionKey("app.models.save")), "default");
+    const followingView = SCOPE_ORDER[(SCOPE_ORDER.indexOf(this.scope) + 1) % SCOPE_ORDER.length] ?? "all";
+    const view = hint(this.keyLabel(this.actionKey("tui.input.tab")), followingView);
+    const close = hint(this.keyLabel(this.actionKey("tui.select.cancel")), "close");
+
+    let candidates: (HintItem | undefined)[];
     if (this.scope === "starred") {
-      hints = [
-        { long: "Enter pick", short: "↵" },
-        { long: "Shift+Tab thinking", short: "⇧⇥" },
-        { long: "Ctrl+S star", short: "^S★" },
-        { long: "Ctrl+↑/↓ reorder", short: "^↑↓" },
-        { long: "Ctrl+D default", short: "^D" },
-        { long: "Ctrl+E hide", short: "^E" },
-        { long: "Tab all", short: "⇥" },
-        { long: "Esc close", short: "esc" },
-      ];
+      candidates = [pick, thinking, star, reorder, setDefault, hint(this.keyLabel(HIDE_KEY), "hide"), view, close];
     } else if (this.scope === "hidden") {
-      hints = [
-        { long: "Enter pick", short: "↵" },
-        { long: "Shift+Tab thinking", short: "⇧⇥" },
-        { long: "Ctrl+E restore", short: "^E" },
-        { long: "Ctrl+D default", short: "^D" },
-        { long: "Tab starred", short: "⇥" },
-        { long: "Esc close", short: "esc" },
-      ];
+      candidates = [pick, thinking, hint(this.keyLabel(HIDE_KEY), "restore"), setDefault, view, close];
     } else {
-      hints = [
-        { long: "Enter pick", short: "↵" },
-        { long: "Shift+Tab thinking", short: "⇧⇥" },
-        { long: "Ctrl+S star", short: "^S★" },
-        { long: "Ctrl+D default", short: "^D" },
-        { long: "Ctrl+E hide", short: "^E" },
-        { long: "Tab hidden", short: "⇥" },
-        { long: "Esc close", short: "esc" },
-      ];
+      candidates = [pick, thinking, star, setDefault, hint(this.keyLabel(HIDE_KEY), "hide"), view, close];
     }
+    const hints = candidates.filter((item): item is HintItem => item !== undefined);
 
     const budget = this.frame.hintBudget(this.lastWidth);
     const join = (items: string[]) => items.join(" · ");
@@ -735,6 +801,14 @@ export class RichModelPicker extends Container implements Focusable {
     if (this.filtered.length === 0) return;
     const total = this.filtered.length;
     this.selectedIndex = (this.selectedIndex + delta + total) % total;
+    this.updateList();
+  }
+
+  /** A page stops at the ends instead of wrapping, as in pi's own lists. */
+  private moveCursorByPage(direction: -1 | 1): void {
+    if (this.filtered.length === 0) return;
+    const last = this.filtered.length - 1;
+    this.selectedIndex = Math.max(0, Math.min(last, this.selectedIndex + direction * MAX_VISIBLE_ROWS));
     this.updateList();
   }
 
@@ -775,11 +849,12 @@ export class RichModelPicker extends Container implements Focusable {
     const item = this.filtered[this.selectedIndex];
     if (!item) return;
     if (!this.options.store.isStarred(item.key)) {
-      this.setStatus("Star the model first with Ctrl+S, then move it.", "error");
+      this.setStatus(`Star the model first with ${this.keyName(STAR_KEY)}, then move it.`, "error");
       return;
     }
     if (this.scope !== "starred") {
-      this.setStatus("Press Tab to open the starred view, then move the model.", "error");
+      const view = this.keyName(this.actionKey("tui.input.tab"));
+      this.setStatus(`Press ${view} until the view shows starred, then move the model.`, "error");
       return;
     }
     if (!this.options.store.move(item.key, direction)) return;
@@ -815,65 +890,88 @@ export class RichModelPicker extends Container implements Focusable {
     this.close();
   }
 
+  private nextView(): void {
+    const next = SCOPE_ORDER[(SCOPE_ORDER.indexOf(this.scope) + 1) % SCOPE_ORDER.length];
+    if (next) this.scope = next;
+    this.selectedIndex = 0;
+    this.setStatus("", "muted");
+    this.applyFilter();
+    this.updateHint();
+  }
+
+  /**
+   * Each key goes through the pi action that means the same thing in pi's own
+   * pickers: Tab and Ctrl+S as in /model, the reorder keys as in
+   * /scoped-models, Shift+Tab as in the editor.
+   */
   handleInput(data: string): void {
-    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+    const keys = this.options.keybindings;
+    if (keys.matches(data, "tui.select.cancel")) {
       this.close();
       this.options.onCancel();
       return;
     }
-    if (matchesKey(data, "up")) {
+    if (keys.matches(data, "tui.select.up")) {
       this.moveCursor(-1);
       return;
     }
-    if (matchesKey(data, "down")) {
+    if (keys.matches(data, "tui.select.down")) {
       this.moveCursor(1);
       return;
     }
-    // Alt stays as a second path. macOS binds Ctrl+Up to Mission Control and
-    // Ctrl+Down to App Windows, so those two keys never reach the terminal
-    // until the user turns the system shortcuts off.
-    if (matchesKey(data, "ctrl+up") || matchesKey(data, "alt+up")) {
+    // Fullscreen mode gives PageUp and PageDown to the transcript before the
+    // picker sees them, as it does in pi's own pickers. A user who binds
+    // these actions to other keys can page there too.
+    if (keys.matches(data, "tui.select.pageUp")) {
+      this.moveCursorByPage(-1);
+      return;
+    }
+    if (keys.matches(data, "tui.select.pageDown")) {
+      this.moveCursorByPage(1);
+      return;
+    }
+    if (keys.matches(data, "app.models.reorderUp")) {
       this.reorder(-1);
       return;
     }
-    if (matchesKey(data, "ctrl+down") || matchesKey(data, "alt+down")) {
+    if (keys.matches(data, "app.models.reorderDown")) {
       this.reorder(1);
       return;
     }
-    if (matchesKey(data, "ctrl+s")) {
-      this.toggleStar();
-      return;
-    }
-    // Not ctrl+h: raw byte 0x08 means Ctrl+H on some terminals and Backspace on
-    // others, so ctrl+h would delete search text on the wrong terminal.
-    if (matchesKey(data, "ctrl+e")) {
-      this.toggleHidden();
-      return;
-    }
-    if (matchesKey(data, "ctrl+d")) {
+    if (keys.matches(data, "app.models.save")) {
       // handleInput is synchronous. toggleDefault redraws on its own when the
       // write finishes, and reports its own failure, so nothing awaits it.
       void this.toggleDefault();
       return;
     }
-    // Shift+Tab is the key pi itself cycles the thinking level with, so a user
-    // reaches for the same key here. It arrives as its own sequence (CSI Z), so
-    // it cannot be confused with Tab. Testing it first keeps that plain.
-    if (matchesKey(data, "shift+tab")) {
+    // Before Tab. Shift+Tab arrives as its own sequence (CSI Z), so the two
+    // cannot be confused, but the order keeps that plain to a reader.
+    if (keys.matches(data, "app.thinking.cycle")) {
       this.cycleThinkingLevel();
       return;
     }
-    if (matchesKey(data, "tab")) {
-      const next = SCOPE_ORDER[(SCOPE_ORDER.indexOf(this.scope) + 1) % SCOPE_ORDER.length];
-      if (next) this.scope = next;
-      this.selectedIndex = 0;
-      this.setStatus("", "muted");
-      this.applyFilter();
-      this.updateHint();
+    if (keys.matches(data, "tui.input.tab")) {
+      this.nextView();
       return;
     }
-    if (matchesKey(data, "enter") || matchesKey(data, "return")) {
+    if (keys.matches(data, "tui.select.confirm")) {
       this.confirmSelection();
+      return;
+    }
+    if (matchesKey(data, STAR_KEY)) {
+      this.toggleStar();
+      return;
+    }
+    if (matchesKey(data, HIDE_KEY)) {
+      this.toggleHidden();
+      return;
+    }
+    if (matchesKey(data, LEVEL_DOWN_KEY)) {
+      this.stepThinkingLevel(-1);
+      return;
+    }
+    if (matchesKey(data, LEVEL_UP_KEY)) {
+      this.stepThinkingLevel(1);
       return;
     }
 

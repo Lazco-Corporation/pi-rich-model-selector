@@ -9,6 +9,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
+// The package exports the type only, so the real class comes by path.
+import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { RichModelPicker } from "../../src/picker.ts";
 import { ModelThinkingStore, StarStore } from "../../src/store.ts";
 
@@ -64,6 +66,7 @@ function makePicker(): RichModelPicker {
   return new RichModelPicker({
     tui: { requestRender: () => { renders += 1; } } as never,
     theme,
+    keybindings: new KeybindingsManager(),
     store,
     thinkingStore,
     defaultThinkingLevel: "medium",
