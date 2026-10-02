@@ -318,8 +318,7 @@ A write keeps the fields it does not own, because it locks the file first.
 2. `Alt+Up` and `Alt+Down` save the order that the picker loaded at open time.
    A star added by another session after that point can go away.
 3. If two sessions write at the same moment, the last write wins.
-4. A level you set applies the next time pi switches to that model.
-   It does not change the level of the session you are in until then.
+4. A level you set for the model in use reaches the session when the picker closes, not on each key press.
 5. In fullscreen mode, `PageUp` and `PageDown` scroll the transcript and do not reach the picker.
    Pi's own pickers work the same way.
    See the FAQ to page the list there.
