@@ -86,7 +86,7 @@ Either way you keep the models pi already had.
 | `Alt+Up` / `Alt+Down` | Move a starred model up or down (second key) |
 | `Tab` | Change the view |
 | `Enter` | Use the model under the cursor |
-| `Esc` or `Ctrl+C` | Close the picker and change nothing |
+| `Esc` or `Ctrl+C` | Close the picker and keep the model you use now |
 
 ## Commands
 
@@ -114,6 +114,7 @@ Either way you keep the models pi already had.
 - `$5/$25` is the price for 1M input tokens and 1M output tokens.
 - `xhigh` is the thinking level this model runs at.
   A dot after it, as in `xhigh ·`, means the level comes from your global default.
+  With no global default set, the dot shows the level pi runs at now, because pi keeps that level when you switch.
   No dot means you set the level for this model.
   A `-` means the model cannot think.
 - `✓` means pi uses this model now.
@@ -149,7 +150,11 @@ Press `Tab` to go to the next view.
 Press `Shift+Tab` to move the level of the model under the cursor.
 It is the key pi itself uses to cycle the thinking level.
 The level is saved against the model, so every model can hold its own.
-Pi applies it when you switch to that model.
+Pi applies it when you switch to that model, from the picker or with `Ctrl+P`.
+A new level for the model in use applies at once, even when you close the picker with `Esc`.
+
+A level you set with `/thinking` for this session only stays when you open the picker and close it.
+It gives way once you change the level of the model in use, or switch model.
 
 ```text
 → · <model-id>  1.0M $5/$25  medium ·      before
@@ -163,7 +168,7 @@ The dot tells you where the level came from.
 
 | Row | Meaning |
 |---|---|
-| `high ·` | No level set. The model follows your global default. |
+| `high ·` | No level set. The model follows your global default, or the level pi runs at now when you have no default. |
 | `high` | You set this level. It stays, whatever the default becomes. |
 | `-` | The model cannot think. The key does nothing. |
 
@@ -177,6 +182,9 @@ The dot comes back, and the entry leaves `settings.json`.
 
 Your global default stays where it is.
 Use pi's own `/thinking` command to change that.
+
+A level written into `enabledModels` in `settings.json`, as `<provider>/<model-id>:<level>`, wins over the level you set here when `Ctrl+P` reaches that model.
+Pi reads it in that order too.
 
 ## Keys the filter box keeps
 
@@ -320,6 +328,7 @@ The load order in `settings.json` does not matter.
 #### Why did my level lose its dot, or get one back?
 
 The dot means the row follows your global default.
+With no global default set, it follows the level pi runs at now.
 
 When you step a level onto the default, the picker removes the entry instead of
 saving one that only repeats the default.

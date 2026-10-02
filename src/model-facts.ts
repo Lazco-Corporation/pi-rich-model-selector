@@ -41,8 +41,8 @@ export function supportedThinkingLevels(model: Model<any>): ModelThinkingLevel[]
 /**
  * The level a model would use, and whether the user pinned it.
  *
- * `pinned: false` means the level came from the global default, so the row
- * follows that default and changes with it. The picker marks that with a dot.
+ * `pinned: false` means the level is inherited, so the row follows that level
+ * and changes with it. The picker marks that with a dot.
  */
 export interface EffectiveThinkingLevel {
   level: ModelThinkingLevel;
@@ -53,16 +53,17 @@ export interface EffectiveThinkingLevel {
  * Work out the level pi would use for a model.
  *
  * Mirrors pi's own order on a model switch: a per-model entry wins, otherwise
- * the global default applies. Either way the answer is clamped, because a
- * default of `xhigh` means nothing to a model that stops at `high`.
+ * the inherited level applies. That is the global default, or the level the
+ * session runs at when settings.json names no default. Either way the answer
+ * is clamped, because `xhigh` means nothing to a model that stops at `high`.
  */
 export function effectiveThinkingLevel(
   model: Model<any>,
   pinnedLevel: ModelThinkingLevel | undefined,
-  globalDefault: ModelThinkingLevel,
+  inheritedLevel: ModelThinkingLevel,
 ): EffectiveThinkingLevel {
   if (!model.reasoning) return { level: "off", pinned: false };
-  const requested = pinnedLevel ?? globalDefault;
+  const requested = pinnedLevel ?? inheritedLevel;
   return { level: clampThinkingLevel(model, requested), pinned: pinnedLevel !== undefined };
 }
 

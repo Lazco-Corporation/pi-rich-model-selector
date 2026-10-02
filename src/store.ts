@@ -4,9 +4,6 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
 
-/** Pi's own fallback when settings.json names no default thinking level. */
-const PI_DEFAULT_THINKING_LEVEL: ModelThinkingLevel = "medium";
-
 export interface StoreData {
   version: number;
   starred: string[];
@@ -530,7 +527,7 @@ export class ModelThinkingStore {
    * file, and a `SettingsManager` reads and parses that file on creation, so
    * one read serves both instead of two.
    */
-  private defaultLevel: ModelThinkingLevel = PI_DEFAULT_THINKING_LEVEL;
+  private defaultLevel: ModelThinkingLevel | undefined;
   /** Models this process changed and has not written yet. */
   private readonly pendingKeys = new Set<string>();
   private saveTimer: NodeJS.Timeout | undefined;
@@ -548,7 +545,7 @@ export class ModelThinkingStore {
 
   private load(): void {
     const settings = SettingsManager.create(this.cwd, this.agentDir);
-    this.defaultLevel = settings.getDefaultThinkingLevel() ?? PI_DEFAULT_THINKING_LEVEL;
+    this.defaultLevel = settings.getDefaultThinkingLevel();
     const saved = settings.getAllModelThinkingLevels();
     const next = new Map<string, ModelThinkingLevel>(Object.entries(saved));
     // A change of ours that has not landed yet must survive a reload, or the
@@ -566,8 +563,13 @@ export class ModelThinkingStore {
     this.load();
   }
 
-  /** The global thinking level, used by every model without an entry of its own. */
-  getDefaultLevel(): ModelThinkingLevel {
+  /**
+   * The global thinking level, or undefined when settings.json names none.
+   *
+   * No stand-in level fills the gap. Without a default, pi keeps the level the
+   * session runs at when it switches model, and only the caller knows that.
+   */
+  getDefaultLevel(): ModelThinkingLevel | undefined {
     return this.defaultLevel;
   }
 

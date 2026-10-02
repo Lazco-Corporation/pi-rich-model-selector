@@ -2,10 +2,12 @@ import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { effectiveThinkingLevel } from "./model-facts.ts";
 import { RichModelPicker } from "./picker.ts";
 import {
   hasEnabledModels,
   ModelThinkingStore,
+  modelKey,
   readDefaultModel,
   StarStore,
   writeDefaultModel,
@@ -48,6 +50,14 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
   const levels = getThinkingStore(ctx.cwd);
   levels.reload();
 
+  // Without a global default, pi keeps the level the session runs at when it
+  // switches model. The rows must show the level a switch really gives.
+  const inheritedLevel = levels.getDefaultLevel() ?? pi.getThinkingLevel();
+  const savedLevel = (model: Model<any>) =>
+    effectiveThinkingLevel(model, levels.get(modelKey(model.provider, model.id)), inheritedLevel).level;
+  const modelInUse = ctx.model;
+  const levelInUseAtOpen = modelInUse ? savedLevel(modelInUse) : undefined;
+
   const usage = ctx.getContextUsage();
   const selected = await ctx.ui.custom<Model<any> | undefined>((tui, theme, _keybindings, done) => {
     return new RichModelPicker({
@@ -55,7 +65,7 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
       theme,
       store: activeStore,
       thinkingStore: levels,
-      defaultThinkingLevel: levels.getDefaultLevel(),
+      defaultThinkingLevel: inheritedLevel,
       registry: ctx.modelRegistry,
       currentModel: ctx.model,
       defaultModel: readDefaultModel(ctx.cwd, getAgentDir()),
@@ -91,15 +101,30 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch
     ctx.ui.notify(`Could not save thinking levels to settings.json: ${describeError(levelFailure)}`, "error");
   }
 
-  if (!selected) return;
+  if (!selected) {
+    // Each level saves on its key press, so Esc keeps it. Pi's own settings
+    // screen puts a level change on the model in use at once. Left alone, the
+    // session would run at a level the row no longer shows. An untouched level
+    // stays as it is, so a level set for this session only with /thinking
+    // survives a look at the picker.
+    if (modelInUse) {
+      const level = savedLevel(modelInUse);
+      if (level !== levelInUseAtOpen) pi.setThinkingLevel(level);
+    }
+    return;
+  }
 
   const applied = await pi.setModel(selected);
   if (!applied) {
     ctx.ui.notify(`Could not switch to ${selected.id}. Check the API key with /login.`, "error");
     return;
   }
-  // pi.setModel applies the model's own thinking level, so report the pair.
-  // A user who just set a level needs to see it took effect.
+  // pi.setModel takes the level from pi's own copy of settings.json, read when
+  // the session started. The picker writes the file through a separate
+  // SettingsManager, so that copy misses every level set since, and pi would
+  // switch at the old one.
+  pi.setThinkingLevel(savedLevel(selected));
+  // Report the pair. A user who just set a level needs to see it took effect.
   ctx.ui.notify(`Model is now ${selected.id} (thinking: ${pi.getThinkingLevel()}).`, "info");
 }
 
@@ -246,6 +271,25 @@ export default function (pi: ExtensionAPI) {
     // Awaited: pi waits for this handler, and the settings write is async.
     // Without the await a level set moments before quitting would be lost.
     await thinkingStore?.flush();
+  });
+
+  // Ctrl+P takes the level from pi's own copy of settings.json too, so it
+  // misses a level set in the picker since the session started. Re-run pi's
+  // order for a cycle against the file as it is now.
+  pi.on("model_select", (event, ctx) => {
+    if (event.source !== "cycle") return;
+    const { provider, id } = event.model;
+    // A level written into enabledModels, as `<model>:<level>`, comes first in
+    // pi's order, and pi read it correctly.
+    const scoped = ctx.scopedModels.find((entry) => entry.model.provider === provider && entry.model.id === id);
+    if (scoped?.thinkingLevel !== undefined) return;
+    const levels = getThinkingStore(ctx.cwd);
+    levels.reload();
+    const level = levels.get(modelKey(provider, id)) ?? levels.getDefaultLevel();
+    // With neither, pi keeps the level the session ran at before the switch.
+    // Only pi saw that level, so its choice stands. It is wrong only when a pin
+    // went away since the session started and no global default is set.
+    if (level !== undefined) pi.setThinkingLevel(level);
   });
 
   pi.registerCommand("models", {

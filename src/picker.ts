@@ -63,7 +63,10 @@ export interface PickerOptions {
   store: StarStore;
   /** Per-model thinking levels. Shift+Tab writes through this. */
   thinkingStore: ModelThinkingStore;
-  /** Thinking level used by any model without an entry of its own. */
+  /**
+   * The level a model without an entry of its own switches to: the global
+   * default, or the level the session runs at when there is none.
+   */
   defaultThinkingLevel: ModelThinkingLevel;
   registry: ModelRegistry;
   currentModel: Model<any> | undefined;
@@ -364,8 +367,8 @@ export class RichModelPicker extends Container implements Focusable {
     const next = levels[index < 0 ? 0 : (index + 1) % levels.length];
     if (!next) return;
 
-    // A pin equal to the global default only repeats it, and would then stop
-    // following a later change to that default. Clearing keeps one meaning for
+    // A pin equal to the inherited level only repeats it, and would then stop
+    // following a later change to that level. Clearing keeps one meaning for
     // the dot: this row follows the default.
     const inherited = effectiveThinkingLevel(item.model, undefined, this.options.defaultThinkingLevel).level;
     if (next === inherited) {
