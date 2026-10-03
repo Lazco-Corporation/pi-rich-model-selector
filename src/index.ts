@@ -3,8 +3,11 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { effectiveThinkingLevel } from "./model-facts.ts";
+import { isValidKeyId } from "./keys.ts";
 import { RichModelPicker } from "./picker.ts";
 import {
+  type CustomKeyAction,
+  DEFAULT_CUSTOM_KEYS,
   hasEnabledModels,
   ModelThinkingStore,
   modelKey,
@@ -36,6 +39,34 @@ function getThinkingStore(cwd: string): ModelThinkingStore {
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** Actions the user rebinds with `/models bind`. Hyphens are ignored, so
+ * `level-down` and `levelDown` name the same action. */
+function parseCustomKeyAction(text: string): CustomKeyAction | undefined {
+  const normalized = text.toLowerCase().replace(/-/g, "");
+  const actions: CustomKeyAction[] = ["star", "hide", "levelDown", "levelUp"];
+  return actions.find((action) => action.toLowerCase() === normalized);
+}
+
+/**
+ * Keys the picker checks before the custom keys, under pi's default
+ * bindings. A custom bind to one of these never fires, so `/models bind`
+ * warns instead of failing in silence.
+ */
+const CLAIMED_KEY_MEANINGS: Record<string, string> = {
+  up: "moves the cursor",
+  down: "moves the cursor",
+  pageup: "moves one page",
+  pagedown: "moves one page",
+  enter: "confirms the model",
+  escape: "closes the picker",
+  "ctrl+c": "closes the picker",
+  tab: "switches the view",
+  "shift+tab": "cycles the thinking level",
+  "ctrl+s": "sets the startup default",
+  "alt+up": "reorders starred models",
+  "alt+down": "reorders starred models",
+};
 
 async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialSearch?: string): Promise<void> {
   if (ctx.mode !== "tui") {
@@ -341,6 +372,56 @@ export default function (pi: ExtensionAPI) {
         } catch (error) {
           ctx.ui.notify(`Could not write settings.json: ${describeError(error)}`, "error");
         }
+        return;
+      }
+
+      if (argument === "keys") {
+        // Another session or a hand edit may have changed the binds.
+        getStore().reload();
+        const keys = getStore().getKeys();
+        const lines = (Object.keys(DEFAULT_CUSTOM_KEYS) as CustomKeyAction[]).map((action) => {
+          const current = keys[action];
+          return `${action}: ${current}${current === DEFAULT_CUSTOM_KEYS[action] ? " (default)" : ""}`;
+        });
+        ctx.ui.notify(
+          `Custom picker keys:\n${lines.join("\n")}\nChange one with /models bind <action> <key>.`,
+          "info",
+        );
+        return;
+      }
+
+      if (argument === "bind" || argument.startsWith("bind ")) {
+        const rest = argument === "bind" ? "" : argument.slice(5).trim();
+        const [actionText, keyText, extra] = rest.split(/\s+/);
+        const action = parseCustomKeyAction(actionText ?? "");
+        if (!action || !keyText || extra !== undefined) {
+          ctx.ui.notify(
+            "Use /models bind <action> <key>. Actions: star, hide, levelDown, levelUp. A key looks like ctrl+r.",
+            "warning",
+          );
+          return;
+        }
+        // Another session or a hand edit may have changed the binds.
+        getStore().reload();
+        if (keyText.toLowerCase() === "default") {
+          getStore().resetKey(action);
+          getStore().flush();
+          ctx.ui.notify(`${action} is back to ${DEFAULT_CUSTOM_KEYS[action]}.`, "info");
+          return;
+        }
+        // matchesKey reads the id case-insensitively, so store one form.
+        const keyId = keyText.toLowerCase();
+        if (!isValidKeyId(keyId)) {
+          ctx.ui.notify(`${keyText} is not a key pi reads. Use a form like ctrl+r, alt+s, or shift+left.`, "error");
+          return;
+        }
+        getStore().setKey(action, keyId);
+        getStore().flush();
+        const claimed = CLAIMED_KEY_MEANINGS[keyId];
+        if (claimed) {
+          ctx.ui.notify(`${keyId} already ${claimed} in the picker, so this bind may never fire.`, "warning");
+        }
+        ctx.ui.notify(`${action} is now ${keyId}.`, "info");
         return;
       }
 

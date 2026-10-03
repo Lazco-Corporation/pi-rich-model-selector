@@ -93,7 +93,7 @@ const KEY = {
   ctrlD: "\x04",
   ctrlE: "\x05",
   ctrlS: "\x13",
-  ctrlT: "\x14",
+  ctrlR: "\x12",
   ctrlX: "\x18",
   f2: "\x1bOQ",
 };
@@ -132,7 +132,7 @@ expect("b1 shows '-'", / - /.test(rowOf("b1").replace(/\s+/g, " ")), true);
 expect("z1 inherits", rowOf("z1").includes("medium ·"), true);
 // The hint names the keys pi binds by default.
 expect("hint: level keys", hintLine().includes("Shift+Tab/←/→ thinking"), true);
-expect("hint: star key", hintLine().includes("Ctrl+T star"), true);
+expect("hint: star key", hintLine().includes("Ctrl+R star"), true);
 expect("hint: default key", hintLine().includes("Ctrl+S default"), true);
 expect("hint: hide key", hintLine().includes("Ctrl+X hide"), true);
 expect("hint: view key", hintLine().includes("· Tab hidden"), true);
@@ -163,7 +163,7 @@ expect("PageUp stops at the first row", cursorIndex(), 0);
 
 // A star moves the row to the end of the star list, and the cursor follows.
 moveCursorTo("a2");
-picker.handleInput(KEY.ctrlT);
+picker.handleInput(KEY.ctrlR);
 expect("after star a2", ids(), ["g2", "a1", "a2", "z1", "g1", "b-longer-name-here", "b1"]);
 expect("cursor followed a2", cursorIndex(), 2);
 

@@ -74,24 +74,25 @@ Either way you keep the models pi already had.
 
 ## Keys
 
-| Key | Action | Pi action |
-|---|---|---|
-| Type text | Filter the list | |
-| `Up` / `Down` | Move the cursor | `tui.select.up` / `tui.select.down` |
-| `PageUp` / `PageDown` | Move the cursor one page | `tui.select.pageUp` / `tui.select.pageDown` |
-| `Shift+Tab` | Move the thinking level up, and start again at the bottom after the top | `app.thinking.cycle` |
-| `Shift+Left` / `Shift+Right` | Move the thinking level one step down or up | |
-| `Ctrl+T` | Star the model, or remove the star | |
-| `Ctrl+S` | Make the model the startup model, or clear it | `app.models.save` |
-| `Ctrl+X` | Hide the model, or show it again | |
-| `Alt+Up` / `Alt+Down` | Move a starred model up or down | `app.models.reorderUp` / `app.models.reorderDown` |
-| `Tab` | Change the view | `tui.input.tab` |
-| `Enter` | Use the model under the cursor | `tui.select.confirm` |
-| `Esc` or `Ctrl+C` | Close the picker and keep the model you use now | `tui.select.cancel` |
+| Key | Action | Pi action | Custom bind |
+|---|---|---|---|
+| Type text | Filter the list | | |
+| `Up` / `Down` | Move the cursor | `tui.select.up` / `tui.select.down` | |
+| `PageUp` / `PageDown` | Move the cursor one page | `tui.select.pageUp` / `tui.select.pageDown` | |
+| `Shift+Tab` | Move the thinking level up, and start again at the bottom after the top | `app.thinking.cycle` | |
+| `Shift+Left` / `Shift+Right` | Move the thinking level one step down or up | | `levelDown` / `levelUp` |
+| `Ctrl+R` | Star the model, or remove the star | | `star` |
+| `Ctrl+S` | Make the model the startup model, or clear it | `app.models.save` | |
+| `Ctrl+X` | Hide the model, or show it again | | `hide` |
+| `Alt+Up` / `Alt+Down` | Move a starred model up or down | `app.models.reorderUp` / `app.models.reorderDown` | |
+| `Tab` | Change the view | `tui.input.tab` | |
+| `Enter` | Use the model under the cursor | `tui.select.confirm` | |
+| `Esc` or `Ctrl+C` | Close the picker and keep the model you use now | `tui.select.cancel` | |
 
 A key with a pi action is the key pi uses for the same action in its own pickers.
 It follows your `keybindings.json`, so a key you rebind moves in the picker and in its key hint too.
-The keys without a pi action are fixed.
+A key with a custom bind is rebound with `/models bind`, as in `/models bind star alt+s`.
+The key hint follows that bind too.
 On macOS, `Alt` is the `Option` key, and the key hint says `Option`.
 
 ## Commands
@@ -105,6 +106,9 @@ On macOS, `Alt` is the `Option` key, and the key hint says `Option`.
 | `/models unsync` | Undo `/models sync` |
 | `/models hide` | Remove the `/model` line from the command menu |
 | `/models show` | Put the `/model` line back |
+| `/models keys` | Show the four custom key binds |
+| `/models bind <action> <key>` | Bind `star`, `hide`, `levelDown`, or `levelUp` to `<key>`, as in `/models bind star alt+s` |
+| `/models bind <action> default` | Hand one bind back to its default |
 
 ## What a row shows
 
@@ -132,7 +136,7 @@ The panel on the right shows more facts about the model under the cursor.
 On a narrow terminal, that panel moves below the list.
 
 ```text
-╭─ Select a model ── ↵ · ⇧⇥←→ · ^T★ · ⌥↑↓ · ^S · ^X · ⇥ · esc ─╮
+╭─ Select a model ── ↵ · ⇧⇥←→ · ^R★ · ⌥↑↓ · ^S · ^X · ⇥ · esc ─╮
 │ View: starred | all | hidden  2 starred, 1 hidden, 3 total   │
 │ >                                                            │
 ├───────────────────────┬──────────────────────────────────────┤
@@ -216,7 +220,7 @@ Use `Ctrl+A` and `Ctrl+E` there.
 ## Star and sort your models
 
 1. Move the cursor to a model.
-2. Press `Ctrl+T` to star it.
+2. Press `Ctrl+R` to star it (or the key you bound to `star`).
 3. Press `Tab` until the view shows `starred`.
 4. Press `Alt+Up` or `Alt+Down` to move the model.
 
@@ -226,14 +230,14 @@ The order applies to starred models only.
 
 ## Hide a model you do not use
 
-Press `Ctrl+X` to hide the model under the cursor.
+Press `Ctrl+X` to hide the model under the cursor (or the key you bound to `hide`).
 A hidden model leaves the `all` view.
 
 To get it back:
 
 1. Press `Tab` until the view shows `hidden`.
 2. Move the cursor to the model.
-3. Press `Ctrl+X`.
+3. Press `Ctrl+X` (or your `hide` bind).
 
 Three rules apply:
 
@@ -292,7 +296,7 @@ The extension writes two files in your pi agent directory.
 
 | File | What it holds |
 |---|---|
-| `~/.pi/agent/rich-model-selector.json` | Your stars, your star order, your hidden models, and the menu setting |
+| `~/.pi/agent/rich-model-selector.json` | Your stars, your star order, your hidden models, your custom keys, and the menu setting |
 | `~/.pi/agent/settings.json` | The thinking level of each model, the startup model, and the `enabledModels` list after a sync |
 
 The thinking levels go into the `modelThinkingLevels` field, which pi reads by
@@ -327,7 +331,10 @@ A write keeps the fields it does not own, because it locks the file first.
 
 #### How do I change a key?
 
-Add the pi action from the [Keys](#keys) table to `~/.pi/agent/keybindings.json`, then run `/reload`.
+Two kinds of keys, two ways to change them.
+
+A key with a pi action in the [Keys](#keys) table follows `~/.pi/agent/keybindings.json`.
+Add the action there, then run `/reload`.
 The change applies in pi's own pickers too, because they use the same action.
 
 ```json
@@ -338,7 +345,12 @@ The change applies in pi's own pickers too, because they use the same action.
 ```
 
 See pi's keybindings documentation for the key syntax.
-The keys without a pi action cannot be changed.
+
+A key with a custom bind in the [Keys](#keys) table follows `/models bind`.
+Run `/models keys` to see the four binds.
+Run `/models bind star alt+s` to move the star key.
+Run `/models bind star default` to hand it back.
+A bind that names a key the picker already claims never fires, and the command says so.
 
 #### How do I page the list in fullscreen mode?
 

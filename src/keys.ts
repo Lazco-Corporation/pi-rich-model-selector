@@ -4,6 +4,7 @@
  * The hint names the keys the user really has. Pi reads keybindings.json, so
  * a rebound action shows its new key, not the default.
  */
+import type { KeyId } from "@earendil-works/pi-tui";
 
 /** A key or a group of keys, written in full and in symbols. */
 export interface KeyLabel {
@@ -91,6 +92,50 @@ function parseKey(keyId: string): ParsedKey {
     base: BASE_LONG[base] ?? plain,
     baseShort: BASE_SHORT[base] ?? plain,
   };
+}
+
+/** Base keys pi accepts, in lowercase. Single characters and F-keys pass
+ * without a lookup, so they are not listed here. */
+const KNOWN_BASE_KEYS = new Set([
+  "tab",
+  "enter",
+  "return",
+  "escape",
+  "esc",
+  "space",
+  "backspace",
+  "delete",
+  "insert",
+  "clear",
+  "home",
+  "end",
+  "pageup",
+  "pagedown",
+  "up",
+  "down",
+  "left",
+  "right",
+]);
+
+/** True when pi's matchesKey can read this key id, such as `ctrl+r`.
+ *
+ * The check mirrors parseKey above: the plus key itself splits into empty
+ * parts, and modifiers match case-insensitively with no repeats. */
+export function isValidKeyId(keyId: string): keyId is KeyId {
+  if (keyId === "") return false;
+  const parts = keyId.split("+");
+  let base = parts.pop() ?? "";
+  if (base === "") {
+    base = "+";
+    parts.pop();
+  }
+  const modifiers = parts.map((part) => part.toLowerCase());
+  if (modifiers.some((modifier) => !(MODIFIER_ORDER as readonly string[]).includes(modifier))) return false;
+  if (new Set(modifiers).size !== modifiers.length) return false;
+  if (base.length === 1) return true;
+  const lower = base.toLowerCase();
+  if (/^f([1-9]|1[0-2])$/.test(lower)) return true;
+  return KNOWN_BASE_KEYS.has(lower);
 }
 
 /**

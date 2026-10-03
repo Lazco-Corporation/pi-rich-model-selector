@@ -1,8 +1,32 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { KeyId } from "@earendil-works/pi-tui";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
+
+export type CustomKeyAction = "star" | "hide" | "levelDown" | "levelUp";
+
+/** Keys for the actions pi has no keybinding action for. The user changes
+ * these with `/models bind`, so the defaults must work for everyone: a key
+ * pi already uses would lose to that use inside the picker, and an Alt
+ * letter would type a symbol on macOS without Option set to Meta. Ctrl+R is
+ * the one Ctrl letter pi leaves free. Ctrl+X matches pi's own clear key in
+ * the same model-list domain. Shift+arrows stay with the filter box, which
+ * is single-line and ignores them. */
+export interface CustomKeys {
+  star: KeyId;
+  hide: KeyId;
+  levelDown: KeyId;
+  levelUp: KeyId;
+}
+
+export const DEFAULT_CUSTOM_KEYS: CustomKeys = {
+  star: "ctrl+r",
+  hide: "ctrl+x",
+  levelDown: "shift+left",
+  levelUp: "shift+right",
+};
 
 export interface StoreData {
   version: number;
@@ -11,10 +35,12 @@ export interface StoreData {
   hidden: string[];
   /** Hide the built-in /model entry from the slash command menu. */
   hideBuiltinModelCommand: boolean;
+  /** Overrides of DEFAULT_CUSTOM_KEYS. Missing entries mean the default. */
+  keys: CustomKeys;
 }
 
 /** The fields a write may own. `version` is constant, so it never merges. */
-type MergeableField = "starred" | "hidden" | "hideBuiltinModelCommand";
+type MergeableField = "starred" | "hidden" | "hideBuiltinModelCommand" | "keys";
 
 const CURRENT_VERSION = 1;
 
@@ -49,6 +75,7 @@ function emptyData(): StoreData {
     starred: [],
     hidden: [],
     hideBuiltinModelCommand: false,
+    keys: { ...DEFAULT_CUSTOM_KEYS },
   };
 }
 
@@ -112,11 +139,17 @@ function withFileLock<T>(path: string, operation: () => T): T {
 
 function parseData(raw: string): StoreData {
   const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as Partial<StoreData>;
+  const rawKeys = (parsed.keys ?? {}) as Partial<Record<CustomKeyAction, unknown>>;
+  const key = (action: CustomKeyAction): KeyId => {
+    const value = rawKeys[action];
+    return typeof value === "string" && value.trim() !== "" ? (value as KeyId) : DEFAULT_CUSTOM_KEYS[action];
+  };
   return {
     version: CURRENT_VERSION,
     starred: Array.isArray(parsed.starred) ? parsed.starred.filter((key) => typeof key === "string") : [],
     hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((key) => typeof key === "string") : [],
     hideBuiltinModelCommand: parsed.hideBuiltinModelCommand === true,
+    keys: { star: key("star"), hide: key("hide"), levelDown: key("levelDown"), levelUp: key("levelUp") },
   };
 }
 
@@ -214,6 +247,7 @@ export class StarStore {
       }
       for (const field of this.modifiedFields) {
         if (field === "hideBuiltinModelCommand") merged.hideBuiltinModelCommand = this.data.hideBuiltinModelCommand;
+        else if (field === "keys") merged.keys = { ...this.data.keys };
         else merged[field] = [...this.data[field]];
       }
       // The toggles decide star against hide on fresh data, so the common path
@@ -427,6 +461,27 @@ export class StarStore {
   setHideBuiltinModelCommand(value: boolean): void {
     this.data.hideBuiltinModelCommand = value;
     this.scheduleSave("hideBuiltinModelCommand");
+  }
+
+  /** The four custom keys with defaults filled in. A copy, so callers
+   * cannot move the stored order by sorting the result. */
+  getKeys(): CustomKeys {
+    return { ...this.data.keys };
+  }
+
+  /** Bind one custom action to a key id such as `alt+s`. The caller checks
+   * the syntax. An unknown action name is a programming error. */
+  setKey(action: CustomKeyAction, keyId: KeyId): void {
+    this.reloadIfChanged();
+    this.data.keys[action] = keyId;
+    this.scheduleSave("keys");
+  }
+
+  /** Hand one custom action back to its default. */
+  resetKey(action: CustomKeyAction): void {
+    this.reloadIfChanged();
+    this.data.keys[action] = DEFAULT_CUSTOM_KEYS[action];
+    this.scheduleSave("keys");
   }
 }
 

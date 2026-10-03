@@ -11,7 +11,7 @@ import {
   supportedThinkingLevels,
   thinkingLevelColor,
 } from "./model-facts.ts";
-import { type ModelThinkingStore, modelKey, type StarStore } from "./store.ts";
+import { type CustomKeys, type ModelThinkingStore, modelKey, type StarStore } from "./store.ts";
 import { computeWindowLayout, WindowFrame } from "./window.ts";
 
 /** Below this width the fact pane moves under the list instead of beside it. */
@@ -26,28 +26,20 @@ const SIDE_PANE_WIDTH = 46;
 const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
 
 /*
- * Keys for the actions pi has no keybinding action for. Every other key comes
- * from pi's keybindings, so a key the user rebinds moves here too.
+ * The actions pi has no keybinding action for read their keys from the
+ * store, so the user rebinds them with `/models bind`. Every other key comes
+ * from pi's keybindings, so a key the user rebinds there moves here too.
  *
- * None of these is a key pi's search box uses by default, so every editing
- * key still reaches the box. That matters most for Ctrl+E: fullscreen mode
- * gives Home and End to the transcript, which leaves Ctrl+E the only way to
- * the end of the search text.
- */
-/** Ctrl+S is pi's save key, which sets the startup default here as in pi's picker. */
-const STAR_KEY = "ctrl+t";
-/**
- * The row marks a hidden model with ✗, and pi's scoped model picker clears
- * models with Ctrl+X. Not Ctrl+H: a terminal may send Backspace as that byte.
- */
-const HIDE_KEY = "ctrl+x";
-/**
+ * A custom key that names a key the picker already claims keeps the old
+ * meaning: pi's actions are checked first, the filter box last. So the
+ * defaults avoid pi's editing keys. That matters most for Ctrl+E: fullscreen
+ * mode gives Home and End to the transcript, which leaves Ctrl+E the only
+ * way to the end of the search text.
+ *
  * Shift+Tab only climbs, as it does in pi, so going one level down takes a
- * full lap. These two step either way. Plain Left and Right stay with the
- * search box, which needs them more.
+ * full lap. The level-down and level-up keys step either way. Plain Left and
+ * Right stay with the search box, which needs them more.
  */
-const LEVEL_DOWN_KEY = "shift+left";
-const LEVEL_UP_KEY = "shift+right";
 
 export interface PickerTheme {
   fg(color: string, text: string): string;
@@ -551,9 +543,9 @@ export class RichModelPicker extends Container implements Focusable {
       let message = "No model matches the search.";
       if (this.scope === "starred" && store.getStarred().length === 0) {
         const view = this.keyName(this.actionKey("tui.input.tab"));
-        message = `No starred models yet. Press ${view} for all, then ${this.keyName(STAR_KEY)} to star one.`;
+        message = `No starred models yet. Press ${view} for all, then ${this.keyName(this.customKeys().star)} to star one.`;
       } else if (this.scope === "hidden" && store.getHidden().length === 0) {
-        message = `No hidden models. Press ${this.keyName(HIDE_KEY)} on a model to hide it.`;
+        message = `No hidden models. Press ${this.keyName(this.customKeys().hide)} on a model to hide it.`;
       }
       this.listContainer.addChild(new Text(theme.fg("muted", message), 0, 0));
       this.renderFacts();
@@ -719,6 +711,12 @@ export class RichModelPicker extends Container implements Focusable {
     return this.options.keybindings.getKeys(action)[0];
   }
 
+  /** The four custom keys as the user bound them. Read fresh each time, so a
+   * `/models bind` between two opens shows on the next open. */
+  private customKeys(): CustomKeys {
+    return this.options.store.getKeys();
+  }
+
   /** Label for a group of keys. An unbound one drops out. */
   private keyLabel(...keyIds: (string | undefined)[]): KeyLabel | undefined {
     const bound = keyIds.filter((keyId): keyId is string => keyId !== undefined);
@@ -747,9 +745,12 @@ export class RichModelPicker extends Container implements Focusable {
     const hint = (label: KeyLabel | undefined, word: string, mark = ""): HintItem | undefined =>
       label && { long: `${label.long} ${word}`, short: label.short + mark };
     const pick = hint(this.keyLabel(this.actionKey("tui.select.confirm")), "pick");
-    const thinkingKeys = this.keyLabel(this.actionKey("app.thinking.cycle"), LEVEL_DOWN_KEY, LEVEL_UP_KEY);
+    const custom = this.customKeys();
+    const thinkingKeys = this.keyLabel(this.actionKey("app.thinking.cycle"), custom.levelDown, custom.levelUp);
     const thinking = hint(thinkingKeys, "thinking");
-    const star = hint(this.keyLabel(STAR_KEY), "star", "★");
+    const star = hint(this.keyLabel(custom.star), "star", "★");
+    const hide = hint(this.keyLabel(custom.hide), "hide");
+    const restore = hint(this.keyLabel(custom.hide), "restore");
     const reorderKeys = this.keyLabel(this.actionKey("app.models.reorderUp"), this.actionKey("app.models.reorderDown"));
     const reorder = hint(reorderKeys, "reorder");
     const setDefault = hint(this.keyLabel(this.actionKey("app.models.save")), "default");
@@ -759,11 +760,11 @@ export class RichModelPicker extends Container implements Focusable {
 
     let candidates: (HintItem | undefined)[];
     if (this.scope === "starred") {
-      candidates = [pick, thinking, star, reorder, setDefault, hint(this.keyLabel(HIDE_KEY), "hide"), view, close];
+      candidates = [pick, thinking, star, reorder, setDefault, hide, view, close];
     } else if (this.scope === "hidden") {
-      candidates = [pick, thinking, hint(this.keyLabel(HIDE_KEY), "restore"), setDefault, view, close];
+      candidates = [pick, thinking, restore, setDefault, view, close];
     } else {
-      candidates = [pick, thinking, star, setDefault, hint(this.keyLabel(HIDE_KEY), "hide"), view, close];
+      candidates = [pick, thinking, star, setDefault, hide, view, close];
     }
     const hints = candidates.filter((item): item is HintItem => item !== undefined);
 
@@ -849,7 +850,7 @@ export class RichModelPicker extends Container implements Focusable {
     const item = this.filtered[this.selectedIndex];
     if (!item) return;
     if (!this.options.store.isStarred(item.key)) {
-      this.setStatus(`Star the model first with ${this.keyName(STAR_KEY)}, then move it.`, "error");
+      this.setStatus(`Star the model first with ${this.keyName(this.customKeys().star)}, then move it.`, "error");
       return;
     }
     if (this.scope !== "starred") {
@@ -958,19 +959,23 @@ export class RichModelPicker extends Container implements Focusable {
       this.confirmSelection();
       return;
     }
-    if (matchesKey(data, STAR_KEY)) {
+    // Custom keys come after pi's actions, so a custom key that names a key
+    // the picker already claims keeps the old meaning. The filter box takes
+    // whatever is left.
+    const custom = this.customKeys();
+    if (matchesKey(data, custom.star)) {
       this.toggleStar();
       return;
     }
-    if (matchesKey(data, HIDE_KEY)) {
+    if (matchesKey(data, custom.hide)) {
       this.toggleHidden();
       return;
     }
-    if (matchesKey(data, LEVEL_DOWN_KEY)) {
+    if (matchesKey(data, custom.levelDown)) {
       this.stepThinkingLevel(-1);
       return;
     }
-    if (matchesKey(data, LEVEL_UP_KEY)) {
+    if (matchesKey(data, custom.levelUp)) {
       this.stepThinkingLevel(1);
       return;
     }
