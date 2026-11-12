@@ -1,139 +1,66 @@
-# @lazco/pi-rich-model-selector
+<div align="center">
 
-**A model picker for pi. It shows model facts, and it keeps your starred models in the order you set.**
+# pi-rich-model-selector
 
-The picker in pi shows the model id, the provider, and the name.
-This extension also shows the context size, the price, the thinking level, and the key state.
-You can set the thinking level of each model, star a model, hide a model, and sort your starred models.
+Pi extension: a model picker with context size, price, thinking level, and key state, and starred models in your order.
 
-<video src="https://github.com/user-attachments/assets/5fd65f9e-ef06-4577-9c7e-793d5c7d6f58" controls></video>
+[![npm](https://img.shields.io/npm/v/@lazco/pi-rich-model-selector)](https://www.npmjs.com/package/@lazco/pi-rich-model-selector) [![License](https://img.shields.io/npm/l/@lazco/pi-rich-model-selector)](LICENSE)
 
-## Table of contents
+[Installation](#installation) · [Usage](#usage) · [Thinking level](#thinking-level-per-model) · [Stars](#star-and-sort-models) · [Files](#where-your-data-goes) · [Limitations](#limitations)
 
-- [Install](#install)
-- [Open the picker](#open-the-picker)
-- [Keys](#keys)
-- [Commands](#commands)
-- [What a row shows](#what-a-row-shows)
-- [The three views](#the-three-views)
-- [Set the thinking level of a model](#set-the-thinking-level-of-a-model)
-- [Keys the filter box keeps](#keys-the-filter-box-keeps)
-- [Star and sort your models](#star-and-sort-your-models)
-- [Hide a model you do not use](#hide-a-model-you-do-not-use)
-- [Set the model pi starts with](#set-the-model-pi-starts-with)
-- [Make Ctrl+P follow your star order](#make-ctrlp-follow-your-star-order)
-- [Hide the built-in /model menu entry](#hide-the-built-in-model-menu-entry)
-- [Where your data goes](#where-your-data-goes)
-- [Limits](#limits)
-- [FAQ](#faq)
-- [License](#license)
+</div>
 
-## Install
+The model picker of pi shows the model id, the provider, and the name.
+This picker also shows the facts that help you choose: the context size, the price, the thinking level, and if the model has a key.
+It replaces `/model` and the model picker key of pi.
 
-```bash
+## Highlights
+
+- **Facts in each row.** Each row shows the context size, the price for 1M input and output tokens, the thinking level, and the key state. A side panel shows more facts about the model under the cursor.
+- **A thinking level for each model.** `Shift+Tab` sets the level of the model under the cursor, and pi applies it when you switch to that model. See [Thinking level per model](#thinking-level-per-model).
+- **Stars in your order.** `Ctrl+R` stars a model, and `Alt+Up` and `Alt+Down` sort the starred models. See [Star and sort models](#star-and-sort-models).
+- **Fewer rows.** `Ctrl+X` hides a model that you do not use. See [Hide a model](#hide-a-model).
+- **`Ctrl+P` in your star order.** `/models sync` writes your starred models into the `Ctrl+P` cycle of pi. See [Make Ctrl+P follow your star order](#make-ctrlp-follow-your-star-order).
+- **Opens at once.** The picker shows the models that pi already knows, and gets a fresh catalog from each provider in the background, for at most 15 seconds.
+
+## Installation
+
+You need [pi](https://github.com/earendil-works/pi) and Node.js 22.19.0 or later.
+
+```sh
 pi install npm:@lazco/pi-rich-model-selector
 ```
 
-> [!IMPORTANT]
-> This package was named `@lazco-studio/pi-rich-model-selector`.
-> That name stopped at `0.4.0` and gets no further release.
-> Every release after it ships under `@lazco/pi-rich-model-selector`.
-> To switch, uninstall the old name first:
->
-> ```bash
-> pi uninstall npm:@lazco-studio/pi-rich-model-selector
-> pi install npm:@lazco/pi-rich-model-selector
-> ```
+Then run `/reload` in pi.
+To check the install, run `pi list`.
+The list of user packages shows `npm:@lazco/pi-rich-model-selector`.
 
-To try it for one session only:
+To try the picker for one session only, without an install:
 
-```bash
+```sh
 pi -e npm:@lazco/pi-rich-model-selector
 ```
 
-## Open the picker
+> **Old package name.** The package `@lazco-studio/pi-rich-model-selector` stopped at `0.4.0`.
+> If you have the old package, remove it before you install the new one:
+>
+> ```sh
+> pi uninstall npm:@lazco-studio/pi-rich-model-selector
+> ```
 
-There are three ways.
-All three open the same picker.
+## Usage
 
-1. Type `/model`.
-   This extension takes over the built-in command.
-2. Type `/models`.
-3. Press `Ctrl+L`, or the key you bound to pi's `app.model.select` action.
-
+Type `/model` or `/models`, or press `Ctrl+L`, to open the picker.
 To open the picker with a filter, add a word:
 
 ```text
 /model opus
 ```
 
-The picker opens at once on the models pi already knows.
-It then asks each provider for a fresh catalog in the background, and the list updates when the answer comes.
-That refresh stops when you close the picker, and it gives up after 15 seconds.
-Either way you keep the models pi already had.
+The extension replaces the built-in `/model` command.
+`Ctrl+L` is the key of the `app.model.select` action of pi, so a key that you bind to that action opens the picker too.
 
-## Keys
-
-| Key | Action | Pi action | Custom bind |
-|---|---|---|---|
-| Type text | Filter the list | | |
-| `Up` / `Down` | Move the cursor | `tui.select.up` / `tui.select.down` | |
-| `PageUp` / `PageDown` | Move the cursor one page | `tui.select.pageUp` / `tui.select.pageDown` | |
-| `Shift+Tab` | Move the thinking level up, and start again at the bottom after the top | `app.thinking.cycle` | |
-| `Shift+Left` / `Shift+Right` | Move the thinking level one step down or up | | `levelDown` / `levelUp` |
-| `Ctrl+R` | Star the model, or remove the star | | `star` |
-| `Ctrl+S` | Make the model the startup model, or clear it | `app.models.save` | |
-| `Ctrl+X` | Hide the model, or show it again | | `hide` |
-| `Alt+Up` / `Alt+Down` | Move a starred model up or down | `app.models.reorderUp` / `app.models.reorderDown` | |
-| `Tab` | Change the view | `tui.input.tab` | |
-| `Enter` | Use the model under the cursor | `tui.select.confirm` | |
-| `Esc` or `Ctrl+C` | Close the picker and keep the model you use now | `tui.select.cancel` | |
-
-A key with a pi action is the key pi uses for the same action in its own pickers.
-It follows your `keybindings.json`, so a key you rebind moves in the picker and in its key hint too.
-A key with a custom bind is rebound with `/models bind`, as in `/models bind star alt+s`.
-The key hint follows that bind too.
-On macOS, `Alt` is the `Option` key, and the key hint says `Option`.
-
-## Commands
-
-| Command | What it does |
-|---|---|
-| `/model` | Open the picker |
-| `/model <text>` | Open the picker with `<text>` in the filter |
-| `/models` | Open the picker |
-| `/models sync` | Copy your star order into the `Ctrl+P` cycle |
-| `/models unsync` | Undo `/models sync` |
-| `/models hide` | Remove the `/model` line from the command menu |
-| `/models show` | Put the `/model` line back |
-| `/models keys` | Show the four custom key binds |
-| `/models bind <action> <key>` | Bind `star`, `hide`, `levelDown`, or `levelUp` to `<key>`, as in `/models bind star alt+s` |
-| `/models bind <action> default` | Hand one bind back to its default |
-
-## What a row shows
-
-```text
-→ ★ <model-id>  1.0M $5/$25  xhigh ✓ ·default
-```
-
-- `→` is the cursor.
-- `★` means the model is starred.
-- `·` means the model is not starred.
-- `✗` means the model is hidden.
-- `1.0M` is the context size.
-- `$5/$25` is the price for 1M input tokens and 1M output tokens.
-- `xhigh` is the thinking level this model runs at.
-  A dot after it, as in `xhigh ·`, means the level comes from your global default.
-  With no global default set, the dot shows the level pi runs at now, because pi keeps that level when you switch.
-  No dot means you set the level for this model.
-  A `-` means the model cannot think.
-- `✓` means pi uses this model now.
-- `·default` means pi starts with this model.
-- `·no key` means there is no API key.
-  Run `/login` to add one.
-
-The panel on the right shows more facts about the model under the cursor.
-On a narrow terminal, that panel moves below the list.
+The picker looks like this:
 
 ```text
 ╭─ Select a model ── ↵ · ⇧⇥←→ · ^R★ · ⌥↑↓ · ^S · ^X · ⇥ · esc ─╮
@@ -145,257 +72,158 @@ On a narrow terminal, that panel moves below the list.
 ╰───────────────────────┴──────────────────────────────────────╯
 ```
 
-## The three views
+The panel on the right shows more facts about the model under the cursor.
+On a narrow terminal, the panel moves below the list.
+Press `Enter` to use the model under the cursor, or `Esc` to close the picker and keep your model.
+
+### What a row shows
+
+```text
+→ ★ <model-id>  1.0M $5/$25  xhigh ✓ ·default
+```
+
+| Mark | Meaning |
+| --- | --- |
+| `→` | The cursor. |
+| `★` | The model is starred. |
+| `·` | The model is not starred. |
+| `✗` | The model is hidden. |
+| `1.0M` | The context size, in tokens. |
+| `$5/$25` | The price for 1M input tokens and 1M output tokens. |
+| `xhigh` | The thinking level of the model. A dot after it means that the level comes from your global default. A `-` means that the model cannot think. See [The dot after the level](docs/thinking-levels.md#the-dot-after-the-level). |
+| `✓` | Pi uses this model now. |
+| `·default` | Pi starts with this model. |
+| `·no key` | The model has no API key. Run `/login` to add one. |
+
+### Views
 
 Press `Tab` to go to the next view.
 
 | View | What it lists |
-|---|---|
+| --- | --- |
 | `starred` | Your starred models, in your order |
-| `all` | Every model, except the hidden ones |
+| `all` | Each model, except the hidden models |
 | `hidden` | Only the hidden models |
 
-## Set the thinking level of a model
+### Keys
 
-Press `Shift+Tab` to move the level of the model under the cursor.
-It is the key pi itself uses to cycle the thinking level.
-Press `Shift+Left` or `Shift+Right` to move the level one step down or up.
-The level is saved against the model, so every model can hold its own.
-Pi applies it when you switch to that model, from the picker or with `Ctrl+P`.
-A new level for the model in use applies at once, even when you close the picker with `Esc`.
+| Key | Action |
+| --- | --- |
+| Type text | Filter the list |
+| `Up` / `Down`, `PageUp` / `PageDown` | Move the cursor |
+| `Shift+Tab`, `Shift+Left` / `Shift+Right` | Change the thinking level |
+| `Ctrl+R` | Star the model, or remove the star |
+| `Alt+Up` / `Alt+Down` | Move a starred model up or down |
+| `Ctrl+X` | Hide the model, or show it again |
+| `Ctrl+S` | Make the model the startup model, or clear it |
+| `Tab` | Go to the next view |
+| `Enter` | Use the model under the cursor |
+| `Esc` or `Ctrl+C` | Close the picker and keep the model that you use now |
 
-A level you set with `/thinking` for this session only stays when you open the picker and close it.
-It gives way once you change the level of the model in use, or switch model.
+Each key follows your `keybindings.json` or the `/models bind` command, and the key hint follows the key.
+On macOS, `Alt` is the `Option` key.
+See [Keys](docs/keys.md) for the filter box keys and for how to change a key.
 
-```text
-→ · <model-id>  1.0M $5/$25  medium ·      before
-→ · <model-id>  1.0M $5/$25  high          after Shift+Tab
-```
+### Commands
 
-`Shift+Tab` goes up, and starts again at the bottom after the top level.
-One key reaches every level that way.
-`Shift+Left` and `Shift+Right` stop at the lowest and the highest level, and say so.
+| Command | What it does |
+| --- | --- |
+| `/model [<text>]` | Open the picker, with `<text>` in the filter box |
+| `/models` | Open the picker |
+| `/models sync` / `/models unsync` | Write your star order into the `Ctrl+P` cycle, or undo it. See [Make Ctrl+P follow your star order](#make-ctrlp-follow-your-star-order). |
+| `/models hide` / `/models show` | Remove the `/model` line from the command menu, or put it back |
+| `/models keys` | Show the 4 custom key binds |
+| `/models bind <action> <key>` | Bind `star`, `hide`, `levelDown`, or `levelUp` to a key. See [Change a key](docs/keys.md#change-a-key). |
 
-The dot tells you where the level came from.
+## Thinking level per model
 
-| Row | Meaning |
-|---|---|
-| `high ·` | No level set. The model follows your global default, or the level pi runs at now when you have no default. |
-| `high` | You set this level. It stays, whatever the default becomes. |
-| `-` | The model cannot think. The level keys do nothing. |
+Press `Shift+Tab` to move the level of the model under the cursor up, or `Shift+Left` and `Shift+Right` to move it one step.
+The picker saves the level for that model, in the `modelThinkingLevels` field that pi reads.
+Pi applies the level when you switch to that model, from the picker or with `Ctrl+P`.
 
-Each model offers its own levels.
-A model may go `off`, `low`, `medium`, `high`, `xhigh`, `max`, and another may
-only go `low`, `medium`, `high`.
-A model with one level, or with none, ignores the level keys.
+To set a model back to your global default, move its level onto the default.
+The picker does not change your global default.
+Use `/thinking` for that.
+See [Thinking levels](docs/thinking-levels.md) for all the rules.
 
-To hand a model back to your global default, step the level onto the default.
-The dot comes back, and the entry leaves `settings.json`.
-
-Your global default stays where it is.
-Use pi's own `/thinking` command to change that.
-
-A level written into `enabledModels` in `settings.json`, as `<provider>/<model-id>:<level>`, wins over the level you set here when `Ctrl+P` reaches that model.
-Pi reads it in that order too.
-
-## Keys the filter box keeps
-
-The filter box takes every key the picker does not claim.
-The picker claims none of the keys pi's editor uses for text, so the box edits the way pi's editor does.
-That includes any editing key you rebind in `keybindings.json`.
-
-| Key | What it does |
-|---|---|
-| `Left` / `Right` | Move the cursor one character |
-| `Ctrl+B` / `Ctrl+F` | Move the cursor one character |
-| `Alt+Left` / `Alt+Right` | Move the cursor one word |
-| `Home` / `Ctrl+A` | Jump to the start |
-| `End` / `Ctrl+E` | Jump to the end |
-| `Ctrl+D` | Delete the character under the cursor |
-| `Ctrl+W` / `Ctrl+U` / `Ctrl+K` | Delete a word, to the start, or to the end |
-
-In fullscreen mode, pi keeps `Home` and `End` for the transcript.
-Use `Ctrl+A` and `Ctrl+E` there.
-
-## Star and sort your models
+## Star and sort models
 
 1. Move the cursor to a model.
-2. Press `Ctrl+R` to star it (or the key you bound to `star`).
+2. Press `Ctrl+R` to star it.
 3. Press `Tab` until the view shows `starred`.
 4. Press `Alt+Up` or `Alt+Down` to move the model.
 
-These are the keys pi's own `/scoped-models` picker uses to sort models.
+These are the keys that the `/scoped-models` picker of pi uses to sort models.
+The order applies only to starred models.
 
-The order applies to starred models only.
+## Hide a model
 
-## Hide a model you do not use
+Press `Ctrl+X` to hide the model under the cursor.
+A hidden model goes out of the `all` view.
+To show it again, go to the `hidden` view and press `Ctrl+X` on the model.
 
-Press `Ctrl+X` to hide the model under the cursor (or the key you bound to `hide`).
-A hidden model leaves the `all` view.
+- A star wins over a hide. When you star a hidden model, it shows again.
+- When you hide a starred model, the star goes away.
+- You cannot hide the model that you use now. Change to another model first.
 
-To get it back:
+## Set the startup model
 
-1. Press `Tab` until the view shows `hidden`.
-2. Move the cursor to the model.
-3. Press `Ctrl+X` (or your `hide` bind).
+Press `Ctrl+S` on a model.
+The row shows `·default` at once, and pi starts with that model the next time.
 
-Three rules apply:
-
-1. A star wins over a hide.
-   If you star a hidden model, the model becomes visible again.
-2. If you hide a starred model, the star goes away.
-3. You cannot hide the model you use now.
-   Change to another model first.
-
-## Set the model pi starts with
-
-1. Move the cursor to the model.
-2. Press `Ctrl+S`.
-
-The row shows `·default` at once.
-Pi opens with that model the next time it starts.
-
-`Ctrl+S` saves the startup model in pi's own picker too.
-Pi's picker also switches to the model and closes.
-This picker stays open and keeps the model you use now, so you can set the default without leaving the model you are on.
-
-To clear it, move the cursor to the default model and press `Ctrl+S` again.
-Pi then goes back to its own defaults.
-Restart pi to apply the change.
+`Ctrl+S` in pi's own picker also switches to the model and closes the picker.
+This picker stays open and keeps your current model.
+To clear the startup model, press `Ctrl+S` on it again, and restart pi.
 
 ## Make Ctrl+P follow your star order
 
-`Ctrl+P` steps through models in pi.
-It reads the `enabledModels` list in `settings.json`.
-This extension can write your star order into that list.
+`Ctrl+P` steps through models in pi, in the order of the `enabledModels` list in `settings.json`.
 
-1. Star the models you want, in the order you want.
+> **Warning.** Check your starred models before you sync.
+> `enabledModels` limits which models pi can use, so after a sync only your starred models are available.
+> To undo the sync, run `/models unsync` and restart pi.
+
+1. Star the models that you want, in the order that you want.
 2. Run `/models sync`.
 3. Restart pi.
 
-To undo this, run `/models unsync` and restart pi.
+## Hide the /model menu entry
 
-> Warning: `enabledModels` limits which models pi can reach.
-> After a sync, only your starred models stay available.
+Pi defines `/model` in its own code, so no setting can remove the command.
+This extension replaces the command, so `/model` and `/models` open the same picker.
 
-## Hide the built-in /model menu entry
-
-Pi defines `/model` inside its own code, so no setting can remove that command.
-This extension takes the command over, so `/model` opens this picker.
-
-You can still remove the extra `/model` line from the command menu.
-
-- Run `/models hide` to remove it.
-  Only `/models` stays in the menu.
-  Both commands still work.
+- Run `/models hide` to remove the `/model` line from the command menu. Both commands still work.
 - Run `/models show` to put the line back.
 
 ## Where your data goes
 
-The extension writes two files in your pi agent directory.
+The extension saves its state in 2 files in your pi agent directory, `~/.pi/agent/`.
 
 | File | What it holds |
-|---|---|
-| `~/.pi/agent/rich-model-selector.json` | Your stars, your star order, your hidden models, your custom keys, and the menu setting |
-| `~/.pi/agent/settings.json` | The thinking level of each model, the startup model, and the `enabledModels` list after a sync |
+| --- | --- |
+| `rich-model-selector.json` | Your stars, your star order, your hidden models, your custom keys, and the menu setting |
+| `settings.json` | The thinking level of each model, the startup model, and the `enabledModels` list after a sync |
 
-The thinking levels go into the `modelThinkingLevels` field, which pi reads by
-itself. So a level set here works the same as one set any other way.
-
-```json
-{
-  "modelThinkingLevels": {
-    "<provider>/<model-id>": "xhigh"
-  }
-}
-```
-
-You can edit both files by hand.
-You can also run more than one pi session at a time.
+You can edit both files by hand, and you can run more than one pi session at a time.
 The picker reads both files each time it opens.
-A write keeps the fields it does not own, because it locks the file first.
+Each write locks the file first and keeps the fields that the extension does not own.
 
-## Limits
+## Limitations
 
-1. An open picker does not follow file changes.
-   Close the picker and open it again to see an edit made somewhere else.
-2. `Alt+Up` and `Alt+Down` save the order that the picker loaded at open time.
-   A star added by another session after that point can go away.
-3. If two sessions write at the same moment, the last write wins.
-4. A level you set for the model in use reaches the session when the picker closes, not on each key press.
-5. In fullscreen mode, `PageUp` and `PageDown` scroll the transcript and do not reach the picker.
-   Pi's own pickers work the same way.
-   See the FAQ to page the list there.
+- **An open picker does not follow file changes.** To see a change from another session or from a hand edit, close the picker and open it again.
+- **A star from another session can go away.** `Alt+Up` and `Alt+Down` save the order that the picker read when it opened.
+- **The last write wins.** When 2 sessions write at the same moment, the second write stays.
+- **No `PageUp` and `PageDown` in fullscreen mode.** Pi gives these keys to the transcript. To page the list, see [Page the list in fullscreen mode](docs/keys.md#page-the-list-in-fullscreen-mode).
 
-## FAQ
+The picker adds to the editor of pi and does not replace it.
+So editor extensions such as `@xynogen/pix-display` continue to work, in any load order.
 
-#### How do I change a key?
+## Contributing
 
-Two kinds of keys, two ways to change them.
-
-A key with a pi action in the [Keys](#keys) table follows `~/.pi/agent/keybindings.json`.
-Add the action there, then run `/reload`.
-The change applies in pi's own pickers too, because they use the same action.
-
-```json
-{
-  "app.models.reorderUp": "<key>",
-  "app.models.reorderDown": "<key>"
-}
-```
-
-See pi's keybindings documentation for the key syntax.
-
-A key with a custom bind in the [Keys](#keys) table follows `/models bind`.
-Run `/models keys` to see the four binds.
-Run `/models bind star alt+s` to move the star key.
-Run `/models bind star default` to hand it back.
-A bind that names a key the picker already claims never fires, and the command says so.
-
-#### How do I page the list in fullscreen mode?
-
-Fullscreen mode takes `PageUp` and `PageDown` for the transcript before the picker sees them.
-Bind the page actions to a second key that the transcript leaves alone:
-
-```json
-{
-  "tui.select.pageUp": ["pageUp", "shift+up"],
-  "tui.select.pageDown": ["pageDown", "shift+down"]
-}
-```
-
-This pages every list in pi, not only this picker.
-
-#### Does this break my other editor extensions?
-
-No.
-Pi runs one editor only, but this extension adds to the editor instead of replacing it.
-An extension such as `@xynogen/pix-display` keeps working.
-The load order in `settings.json` does not matter.
-
-#### Why did my level lose its dot, or get one back?
-
-The dot means the row follows your global default.
-With no global default set, it follows the level pi runs at now.
-
-When you step a level onto the default, the picker removes the entry instead of
-saving one that only repeats the default.
-The dot comes back to show that.
-If the default later changes, that model follows it.
-
-#### Can I pin a level that equals my global default?
-
-No.
-A level equal to the default is stored as "follow the default".
-To pin one model apart from the rest, set the other models instead, or change
-your global default with `/thinking`.
-
-#### I changed a file while pi was running. What happens?
-
-Open the picker again to see the change.
-A `/models hide` or `/models show` in one session reaches the other sessions on the next key press.
+To report a bug or ask a question, open an issue on [GitHub](https://github.com/Lazco-Corporation/pi-rich-model-selector/issues).
+The build, verify, and release steps are in [AGENTS.md](AGENTS.md).
+See [CHANGELOG.md](CHANGELOG.md) for the changes in each release.
 
 ## License
 
-AGPL-3.0-or-later.
-See [LICENSE](./LICENSE).
+[AGPL-3.0-or-later](LICENSE)

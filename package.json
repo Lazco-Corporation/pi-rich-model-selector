@@ -1,7 +1,7 @@
 {
   "name": "@lazco/pi-rich-model-selector",
   "version": "0.7.0",
-  "description": "Pi extension: a model picker that shows context size, price, thinking levels, and key state, with starred models in your own order",
+  "description": "Pi extension: a model picker with context size, price, thinking level, and key state, and starred models in your order",
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "author": "Lazco Corporation (拉資科科技有限公司)",
