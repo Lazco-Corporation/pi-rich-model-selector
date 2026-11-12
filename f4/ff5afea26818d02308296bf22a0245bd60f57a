@@ -1,0 +1,25 @@
+.github/workflows/release-npm.yml
+  s_ca649ffe1d1c2b::t_98857384050d4c 13-15,30-31,46,55,61-64,93
+AGENTS.md
+  s_ca649ffe1d1c2b::t_980c69b3889c2d 32-33,146-153,182-183,195-199,212-221
+scripts/changelog-notes.sh
+  s_ca649ffe1d1c2b::t_4ef0f1898a31d0 1-32
+scripts/release.sh
+  s_ca649ffe1d1c2b::t_a706d1f42a7b8a 127-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4ff5afea26818d02308296bf22a0245bd60f57a",
+  "prompts": {},
+  "sessions": {
+    "s_ca649ffe1d1c2b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf03-d4d1-766c-8d3c-521b0afd62c3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
