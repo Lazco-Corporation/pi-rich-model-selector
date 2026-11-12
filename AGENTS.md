@@ -29,6 +29,8 @@ All source sits under `src/`.
 | `store.ts` | reads and writes the star file and the pi settings file |
 
 `scripts/release.sh` cuts a release.
+`scripts/changelog-notes.sh` prints the `CHANGELOG.md` section for one
+version.
 `.github/workflows/release-npm.yml` publishes one.
 `scripts/verify/` holds scripts that drive the exported picker and check what
 it shows. `scripts/bench-picker.ts` and `scripts/bench-open.ts` time it.
@@ -141,7 +143,14 @@ numbers in the commit body.
 `npm version` owns the version number. Never edit the `version` field in
 `package.json` by hand.
 
-One command cuts a release from `main`:
+Every release has a `CHANGELOG.md` entry, and the GitHub release shows that
+entry. Cut a release from `main` in this order:
+
+1. Add a `## [<version>] - <YYYY-MM-DD>` section at the top of
+   `CHANGELOG.md`, below the intro.
+2. Add a `[<version>]: <compare-url>` link at the bottom of `CHANGELOG.md`.
+3. Commit the entry and push `main`.
+4. Run the release command:
 
 ```bash
 npm run release -- <bump>
@@ -170,7 +179,8 @@ Then it runs `npm version <bump>`, which writes `package.json`, commits, and
 creates the `v<version>` tag in one step. So the tag and `package.json` can
 never disagree.
 
-It then refuses to continue if that version is already on the npm registry,
+It then refuses to continue if `CHANGELOG.md` has no section for that
+version. It also refuses a version that is already on the npm registry,
 because an npm version is immutable. A duplicate would waste the version
 number.
 
@@ -182,8 +192,11 @@ deletes only the tag this run created. Nothing reaches the remote.
 ### What the tag does
 
 A push of a `v*` tag starts `.github/workflows/release-npm.yml`. That workflow
-installs, type-checks, reads the npm token from the secret store, publishes
-with provenance, and creates the GitHub release with generated notes.
+reads the `CHANGELOG.md` section for the version, installs, type-checks, reads
+the npm token from the secret store, and publishes with provenance. It then
+creates the GitHub release with the `CHANGELOG.md` section, followed by the
+notes that GitHub generates. A missing section stops the workflow before the
+publish.
 
 A version that holds a `-`, such as `<MAJOR>.<MINOR>.<PATCH>-beta.<N>`, goes to
 the `next` dist-tag. A normal version goes to `latest`.
@@ -196,3 +209,13 @@ the `next` dist-tag. A normal version goes to `latest`.
 
 Check what reached `main` since the last tag before choosing. A release that
 carries a new key is not a patch.
+
+### Write the changelog entry
+
+- Write only changes that a user can see. Leave out CI, tests, and
+  refactors.
+- Group the items under `### Added`, `### Changed`, `### Fixed`,
+  `### Removed`, or `### Docs`.
+- Put each full sentence on its own line.
+- When a release moves a key that a user knows, say so at the top of the
+  entry in a `> [!IMPORTANT]` block.
