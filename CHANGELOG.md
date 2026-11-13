@@ -4,6 +4,13 @@ All releases of `@lazco/pi-rich-model-selector` are in this file.
 The newest release is at the top.
 Releases up to `0.4.0` shipped under the old name `@lazco-studio/pi-rich-model-selector`.
 
+## [0.7.1] - 2026-11-14
+
+### Docs
+
+- The README is a public product page, with a demo GIF and screenshots of the picker, the thinking level, and the starred models.
+- The demo video in the README and in the pi package manifest is new, and the manifest has an image.
+
 ## [0.7.0] - 2026-10-03
 
 ### Added
@@ -145,6 +152,7 @@ This is the first release.
 - `/models hide` removes the `/model` line from the command menu, and `/models show` puts it back.
 - The stars live in `~/.pi/agent/rich-model-selector.json`.
 
+[0.7.1]: https://github.com/Lazco-Corporation/pi-rich-model-selector/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Lazco-Corporation/pi-rich-model-selector/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Lazco-Corporation/pi-rich-model-selector/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Lazco-Corporation/pi-rich-model-selector/compare/v0.4.0...v0.5.0
