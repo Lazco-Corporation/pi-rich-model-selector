@@ -6,7 +6,9 @@ Pi extension: a model picker with context size, price, thinking level, and key s
 
 [![npm](https://img.shields.io/npm/v/@lazco/pi-rich-model-selector)](https://www.npmjs.com/package/@lazco/pi-rich-model-selector) [![License](https://img.shields.io/npm/l/@lazco/pi-rich-model-selector)](LICENSE)
 
-[Installation](#installation) · [Usage](#usage) · [Thinking level](#thinking-level-per-model) · [Stars](#star-and-sort-models) · [Files](#where-your-data-goes) · [Limitations](#limitations)
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/demo.gif" width="720" alt="The user types /model in pi. The picker opens with the context size, the price, and the thinking level in each row, and Shift+Tab sets the thinking level of a model.">
+
+[Demo video](#demo-video) · [Installation](#installation) · [Usage](#usage) · [Thinking level](#thinking-level-per-model) · [Stars](#star-and-sort-models) · [Files](#where-your-data-goes) · [Limitations](#limitations)
 
 </div>
 
@@ -22,6 +24,13 @@ It replaces `/model` and the model picker key of pi.
 - **Fewer rows.** `Ctrl+X` hides a model that you do not use. See [Hide a model](#hide-a-model).
 - **`Ctrl+P` in your star order.** `/models sync` writes your starred models into the `Ctrl+P` cycle of pi. See [Make Ctrl+P follow your star order](#make-ctrlp-follow-your-star-order).
 - **Opens at once.** The picker shows the models that pi already knows, and gets a fresh catalog from each provider in the background, for at most 15 seconds.
+
+## Demo video
+
+The 60-second video shows the install, the facts in each row, the side panel, the thinking level, stars and their order, hidden models, and `/models sync` with `Ctrl+P`.
+Click the image to play the video.
+
+<a href="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/Demo.mp4"><img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/demo-poster.png" width="720" alt="A frame of the demo video. The picker is filtered by opus, and the side panel shows the facts of claude-opus-4-8."></a>
 
 ## Installation
 
@@ -75,6 +84,8 @@ The picker looks like this:
 The panel on the right shows more facts about the model under the cursor.
 On a narrow terminal, the panel moves below the list.
 Press `Enter` to use the model under the cursor, or `Esc` to close the picker and keep your model.
+
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/picker.png" width="720" alt="The picker in pi. Each row shows the model id, the context size, the price, and the thinking level. The side panel shows the name, provider, API, host, context, prices, thinking levels, input, and key of the model under the cursor.">
 
 ### What a row shows
 
@@ -141,6 +152,8 @@ Press `Shift+Tab` to move the level of the model under the cursor up, or `Shift+
 The picker saves the level for that model, in the `modelThinkingLevels` field that pi reads.
 Pi applies the level when you switch to that model, from the picker or with `Ctrl+P`.
 
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/thinking.png" width="720" alt="The row of claude-opus-4-8 shows xhigh, and the status line says: claude-opus-4-8 thinking level is xhigh.">
+
 To set a model back to your global default, move its level onto the default.
 The picker does not change your global default.
 Use `/thinking` for that.
@@ -155,6 +168,8 @@ See [Thinking levels](docs/thinking-levels.md) for all the rules.
 
 These are the keys that the `/scoped-models` picker of pi uses to sort models.
 The order applies only to starred models.
+
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/starred.png" width="720" alt="The starred view with three starred models in the user's order: claude-opus-4-8, qwen3-coder:30b, and gpt-5.5.">
 
 ## Hide a model
 

@@ -33,7 +33,8 @@
     "extensions": [
       "./src/index.ts"
     ],
-    "video": "https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/Demo.mp4"
+    "video": "https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/Demo.mp4",
+    "image": "https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rich-model-selector/picker.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
